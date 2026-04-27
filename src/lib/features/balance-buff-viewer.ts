@@ -4,12 +4,10 @@
  * 游玩特定模式（大乱斗 / 无限火力 / 克隆大作战 / 极限闪击 / 斗魂竞技场 / 终极魔咒书）时，
  * 鼠标悬停在英雄头像上，显示对应的平衡数值调整。
  *
- * 设计思路（参考 balance-buff-viewer 开源项目）：
+ * 设计思路：
  * - 复用客户端原生 <lol-uikit-tooltip> 组件获得原生风格
- * - 双缓存数组：teamArray / benchArray
- *   - WebSocket 变化时只更新数组
- *   - 鼠标悬停时实时读数组 → 完美响应换英雄
- * - 只绑一次 mouseover/mouseout 事件，DOM 事件不重绑
+ * - hover 时直接从 DOM 元素的 background-image 提取 championId，实时查数据
+ * - 无需缓存数组，不存在索引错位问题
  * - injector 守护注入点，客户端刷掉也会自动补回
  *
  * 数据源：Fandom LoL Wiki（字段用下划线命名，稀疏结构）
@@ -17,7 +15,7 @@
 
 import { logger } from '@/index'
 import { lcu, LcuEventUri, type LCUEventMessage } from '@/lib/lcu'
-import type { GameflowPhase, ChampSelectSession } from '@/types/lcu'
+import type { GameflowPhase } from '@/types/lcu'
 import { injector } from '@/lib/InjectorManager'
 import { getChampionBalance, getQueueName, type BalanceMode, type ChampionBalanceStats } from '@/lib/assets'
 
@@ -243,67 +241,24 @@ function buildStatsHtml(stats: ChampionBalanceStats): string {
 
 // ==================== 主模块状态 ====================
 
-type TooltipData = { champId: number; caption: string; content: string }
-
 let tooltip: BalanceTooltip | null = null
-let teamArray: TooltipData[] = []
-let benchArray: TooltipData[] = []
 /** 当前模式：dataKey 用于查平衡数据，displayName 直接用 getQueueName(queueId) 从 LCU 官方数据取 */
 let currentMode: { dataKey: BalanceMode; displayName: string } | null = null
-let sessionUnsub: (() => void) | null = null
 let phaseUnsub: (() => void) | null = null
 let injectRegistered = false
-/** 轮询定时器：WS observer 未推送时，定时主动拉取 session 兜底 */
-let pollTimer: ReturnType<typeof setInterval> | null = null
 
-// ==================== 数据更新 ====================
+// ==================== 数据渲染（hover 时按需调用） ====================
 
-function buildTooltipData(champId: number): TooltipData | null {
+function buildTooltipData(champId: number): { caption: string; content: string } | null {
   if (champId <= 0 || !currentMode) return null
   const balance = getChampionBalance(champId)
-  if (!balance) {
-    logger.debug('[BalanceBuff] buildTooltipData: championId=%d 无平衡数据', champId)
-    return null
-  }
+  if (!balance) return null
 
   // Wiki 数据稀疏：没调整的模式根本不存在
   const stats = balance.stats?.[currentMode.dataKey] ?? {}
-  const statKeys = Object.keys(stats)
-  logger.debug('[BalanceBuff] buildTooltipData: championId=%d, mode=%s, stats字段=%s', champId, currentMode.dataKey, statKeys.length ? statKeys.join(',') : '(无)')
   return {
-    champId,
     caption: `${currentMode.displayName} · 平衡调整`,
     content: buildStatsHtml(stats),
-  }
-}
-
-function updateFromSession(session: ChampSelectSession) {
-  if (!currentMode) return
-
-  teamArray = []
-  benchArray = []
-
-  // 我方队伍
-  if (Array.isArray(session.myTeam)) {
-    for (let i = 0; i < session.myTeam.length; i++) {
-      const p = session.myTeam[i]
-      const champId = p.championPickIntent || p.championId
-      const data = buildTooltipData(champId)
-      teamArray[i] = data ?? { champId: 0, caption: '', content: '' }
-    }
-    logger.debug('[BalanceBuff] updateFromSession: myTeam=%d人, teamArray有效=%d', session.myTeam.length, teamArray.filter(d => d.champId > 0).length)
-  } else {
-    logger.debug('[BalanceBuff] updateFromSession: myTeam 不是数组')
-  }
-
-  // 候选席（大乱斗专属）
-  if (session.benchEnabled && Array.isArray(session.benchChampions)) {
-    for (let i = 0; i < session.benchChampions.length; i++) {
-      const slot = session.benchChampions[i]
-      const data = buildTooltipData(slot.championId)
-      benchArray[i] = data ?? { champId: 0, caption: '', content: '' }
-    }
-    logger.debug('[BalanceBuff] updateFromSession: bench=%d个, benchArray有效=%d', session.benchChampions.length, benchArray.filter(d => d.champId > 0).length)
   }
 }
 
@@ -311,23 +266,103 @@ function updateFromSession(session: ChampSelectSession) {
 
 const BOUND_ATTR = 'data-sona-balance-hover'
 
+/**
+ * 从 summoner-container-wrapper 中提取英雄 ID
+ * 支持两种方式：
+ * 1. <img> 标签的 src 属性
+ * 2. CSS background-image
+ * URL 格式: /lol-game-data/assets/v1/champion-icons/102.png
+ */
+function extractChampionIdFromWrapper(wrapper: Element): number | null {
+  // 优先从 <img> 标签提取
+  const img = wrapper.querySelector('img[src*="champion-icons"]')
+  if (img) {
+    const src = img.getAttribute('src') || ''
+    const match = src.match(/champion-icons\/(\d+)\.png/)
+    if (match) {
+      logger.debug('[BalanceBuff] extractFromWrapper: 从<img>提取 championId=%s (src=%s)', match[1], src)
+      return Number(match[1])
+    }
+    logger.debug('[BalanceBuff] extractFromWrapper: 找到<img>但src不匹配 (src=%s)', src)
+  } else {
+    logger.debug('[BalanceBuff] extractFromWrapper: 未找到 img[src*=champion-icons]')
+  }
+
+  // fallback: 从 background-image 提取
+  // 真正的图标在子元素 .portrait-icon / .fit-icon 上
+  const iconContainer = wrapper.querySelector('.champion-icon-container') as HTMLElement | null
+    ?? wrapper.querySelector('.champion-icon') as HTMLElement | null
+  if (iconContainer) {
+    // 1) 先查自身
+    let bg = iconContainer.style.backgroundImage || ''
+    // 2) 自身没有，在子元素中查找含 champion-icons 的 background-image
+    if (!bg || !bg.includes('champion-icons')) {
+      const bgEl = iconContainer.querySelector('[style*="champion-icons"]') as HTMLElement | null
+      bg = bgEl?.style.backgroundImage || ''
+    }
+    logger.debug('[BalanceBuff] extractFromWrapper: 找到iconContainer (class=%s, bg=%s)', iconContainer.className, bg)
+    const match = bg.match(/champion-icons\/(\d+)\.png/)
+    if (match) {
+      logger.debug('[BalanceBuff] extractFromWrapper: 从background-image提取 championId=%s', match[1])
+      return Number(match[1])
+    }
+    logger.debug('[BalanceBuff] extractFromWrapper: iconContainer内background-image不匹配')
+  } else {
+    logger.debug('[BalanceBuff] extractFromWrapper: 未找到 .champion-icon-container 或 .champion-icon')
+  }
+
+  // 最终兜底：打印 wrapper 内所有 img 和带 background-image 的元素
+  const allImgs = wrapper.querySelectorAll('img')
+  if (allImgs.length > 0) {
+    logger.debug('[BalanceBuff] extractFromWrapper: wrapper内所有img: %o', Array.from(allImgs).map(i => ({ src: i.getAttribute('src'), alt: i.getAttribute('alt') })))
+  }
+  logger.debug('[BalanceBuff] extractFromWrapper: 无法提取championId，wrapper.innerHTML片段=%s', wrapper.innerHTML.substring(0, 300))
+  return null
+}
+
+/**
+ * 从 champion-bench-item 中提取英雄 ID
+ * 支持 <img> 标签和 background-image 两种方式
+ */
+function extractChampionIdFromBench(item: Element): number | null {
+  // 优先从 <img> 标签提取
+  const img = item.querySelector('img[src*="champion-icons"]')
+  if (img) {
+    const match = img.getAttribute('src')?.match(/champion-icons\/(\d+)\.png/)
+    if (match) return Number(match[1])
+  }
+
+  // fallback: 从 background-image 提取
+  const bg = item.querySelector('.bench-champion-background') as HTMLElement | null
+  if (bg) {
+    const style = bg.style.backgroundImage || ''
+    const match = style.match(/champion-icons\/(\d+)\.png/)
+    if (match) return Number(match[1])
+  }
+
+  return null
+}
+
 function tryBindHover(): boolean {
   if (!tooltip || !currentMode) return true
 
   logger.debug('[BalanceBuff] tryBindHover: tooltip=%s, mode=%s', !!tooltip, currentMode.dataKey)
 
-  // 我方队员
+  // 我方队员 — 使用和 features.ts 相同的选择器确保覆盖所有位置
   const party = document.querySelector('.summoner-array.your-party')
   if (party) {
     const wrappers = party.querySelectorAll('.summoner-container-wrapper')
     logger.debug('[BalanceBuff] tryBindHover: 找到party, wrappers=%d个', wrappers.length)
-    wrappers.forEach((el, index) => {
+    wrappers.forEach((el) => {
       if (el.hasAttribute(BOUND_ATTR)) return
       el.setAttribute(BOUND_ATTR, 'team')
       el.addEventListener('mouseenter', () => {
-        const data = teamArray[index]
-        logger.debug('[BalanceBuff] mouseenter: index=%d, champId=%d', index, data?.champId ?? -1)
-        if (data && data.champId > 0) tooltip!.show(el, 'right', data.caption, data.content)
+        // 从 DOM 实时提取 championId，不依赖索引对应
+        const champId = extractChampionIdFromWrapper(el)
+        logger.debug('[BalanceBuff] mouseenter: champId=%d', champId ?? -1)
+        if (!champId || champId <= 0) return
+        const data = buildTooltipData(champId)
+        if (data) tooltip!.show(el, 'right', data.caption, data.content)
       })
       el.addEventListener('mouseleave', () => tooltip!.hide())
     })
@@ -338,13 +373,15 @@ function tryBindHover(): boolean {
   // 候选席
   const bench = document.querySelectorAll('.bench-container .champion-bench-item')
   logger.debug('[BalanceBuff] tryBindHover: bench元素=%d个', bench.length)
-  bench.forEach((el, index) => {
+  bench.forEach((el) => {
     if (el.hasAttribute(BOUND_ATTR)) return
     el.setAttribute(BOUND_ATTR, 'bench')
     el.addEventListener('mouseenter', () => {
-      const data = benchArray[index]
-      logger.debug('[BalanceBuff] mouseenter bench: index=%d, champId=%d', index, data?.champId ?? -1)
-      if (data && data.champId > 0) tooltip!.show(el, 'bottom', data.caption, data.content)
+      const champId = extractChampionIdFromBench(el)
+      logger.debug('[BalanceBuff] mouseenter bench: champId=%d', champId ?? -1)
+      if (!champId || champId <= 0) return
+      const data = buildTooltipData(champId)
+      if (data) tooltip!.show(el, 'bottom', data.caption, data.content)
     })
     el.addEventListener('mouseleave', () => tooltip!.hide())
   })
@@ -365,7 +402,6 @@ async function mountForChampSelect() {
     queueId = gf.gameData?.queue?.id || 0
     logger.debug('[BalanceBuff] getGameflowSession: gameMode=%s, queueId=%d', gameMode, queueId)
   } catch (e) {
-    // fallback: 从 ChampSelectSession 推测（有些接口字段不同）
     logger.debug('[BalanceBuff] getGameflowSession 失败: %o', e)
   }
 
@@ -386,59 +422,18 @@ async function mountForChampSelect() {
     logger.warn('[BalanceBuff] 未找到 layer-manager-wrapper，延迟挂载')
     return
   }
-  logger.debug('[BalanceBuff] 找到 layer-manager-wrapper，创建 tooltip')
   tooltip = new BalanceTooltip(manager)
 
-  // 3. 订阅 champ-select 会话变化（核心：换英雄自动更新数组）
-  sessionUnsub = lcu.observe(LcuEventUri.CHAMP_SELECT, (event: LCUEventMessage) => {
-    const session = event.data as ChampSelectSession
-    if (session) updateFromSession(session)
-  })
-
-  // 4. 主动拉一次当前会话初始化数据
-  try {
-    const session = await lcu.getChampSelectSession()
-    logger.debug('[BalanceBuff] 初始session拉取成功, myTeam=%d人', session.myTeam?.length ?? -1)
-    updateFromSession(session)
-  } catch (e) {
-    // 选人刚开始可能拉不到，靠后面的 observe 补
-    logger.debug('[BalanceBuff] 初始session拉取失败: %o', e)
-  }
-
-  // 5. 启动轮询兜底：首次启动时 WS observer 可能不推送 CHAMP_SELECT 事件
-  //    当 teamArray 无有效数据时，每 2 秒主动拉取一次；一旦有数据或离开选人则停止
-  pollTimer = setInterval(async () => {
-    const hasValidData = teamArray.some(d => d.champId > 0) || benchArray.some(d => d.champId > 0)
-    if (hasValidData) {
-      // 数据已就绪，停止轮询
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-      logger.debug('[BalanceBuff] 轮询检测到有效数据，停止轮询')
-      return
-    }
-    try {
-      const session = await lcu.getChampSelectSession()
-      logger.debug('[BalanceBuff] 轮询拉取session, myTeam=%d人', session.myTeam?.length ?? -1)
-      updateFromSession(session)
-    } catch {
-      // 忽略，下次再试
-    }
-  }, 2000)
-
-  // 5. 注册 DOM 绑定注入（injector 会自愈）
+  // 3. 注册 DOM 绑定注入（injector 会自愈，换英雄后 DOM 变化时自动重新绑定）
   injector.register(tryBindHover)
   injectRegistered = true
 }
 
 function unmountForChampSelect() {
   logger.debug('[BalanceBuff] unmountForChampSelect 执行')
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
   if (injectRegistered) {
     injector.unregister(tryBindHover)
     injectRegistered = false
-  }
-  if (sessionUnsub) {
-    sessionUnsub()
-    sessionUnsub = null
   }
   if (tooltip) {
     tooltip.destroy()
@@ -446,8 +441,6 @@ function unmountForChampSelect() {
   }
   // 清理 DOM 标记
   document.querySelectorAll(`[${BOUND_ATTR}]`).forEach((el) => el.removeAttribute(BOUND_ATTR))
-  teamArray = []
-  benchArray = []
   currentMode = null
 }
 

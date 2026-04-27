@@ -14,6 +14,8 @@
   - 国服联盟一区~五区（NJ100/GZ100/CQ100/TJ100/TJ101 等）的 issuer 不含 `k8s`，旧正则硬编码 `-k8s-` 导致无法匹配，SGP 查询必然失败
   - 外服 issuer 子域名与 SGP 服务器 key 不一致（如 `EUW1` → `EUW`、`RU1` → `RU`），缺少映射导致查找失败
   - issuer 解析失败时无备用方案，新增从 `/lol-chat/v1/me` 的 `platformId` 字段获取服务器 ID 的 fallback 机制
+- **主播模式玩家名字显示为"未知"** — 主播模式下已有真实 puuid 可查到 summonerInfo，现在正常显示名字
+- **平衡性调整弹窗部分英雄 hover 无反应** — 旧实现用 `myTeam` 数组索引对应 DOM 位置，但两者顺序不一定一致；改为 hover 时直接从 DOM 元素提取 championId 实时查数据，彻底消除索引错位问题
 
 ---
 

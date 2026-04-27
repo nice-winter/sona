@@ -54,7 +54,7 @@ interface PlayerAnalysis {
   rating: string
   premadeGroup: string | null
   recentGames: RecentGame[]
-  /** 主播模式下无法查询任何数据 */
+  /** 主播模式标记 */
   isBroadcaster: boolean
 }
 
@@ -264,10 +264,9 @@ export function GameAnalysisModal({ open, onClose, mockData }: GameAnalysisModal
               }).catch(() => null),
             ])
 
-            // 主播模式：名字用 "未知"，但数据正常展示
-            const summonerName = isBroadcaster
-              ? '未知'
-              : (summoner?.gameName ? `${summoner.gameName} #${summoner.tagLine}` : '未知')
+            const summonerName = summoner?.gameName
+              ? `${summoner.gameName} #${summoner.tagLine}`
+              : '未知'
 
             // 解析排位（取最高段位）
             let rankText = '未定级'
