@@ -22,9 +22,14 @@ function normalizePath(raw: string): string {
 // ==================== 映射表 ====================
 
 const itemMap = new Map<number, string>()
+const itemNameMap = new Map<number, string>()
 const spellMap = new Map<number, string>()
+const spellNameMap = new Map<number, string>()
 const perkMap = new Map<number, string>()
+const perkNameMap = new Map<number, string>()
 const perkStyleMap = new Map<number, string>()
+const perkStyleNameMap = new Map<number, string>()
+const augmentMap = new Map<number, { name: string; iconPath: string; rarity: string }>()
 const queueMap = new Map<number, GameQueue>()
 const mapDataMap = new Map<number, { id: number; name: string; gameModeName: string; [key: string]: unknown }>()
 
@@ -144,7 +149,7 @@ async function tryInit(attempt: number) {
   const MAX_RETRY = 3
   const RETRY_DELAY = 2000
 
-  const [items, spells, queues, maps, perks, perkStyles, champions] = await Promise.all([
+  const [items, spells, queues, maps, perks, perkStyles, champions, augments] = await Promise.all([
     lcu.getItems().catch((e) => { logger.warn('[Assets] getItems 失败:', e); return [] }),
     lcu.getSummonerSpells().catch((e) => { logger.warn('[Assets] getSummonerSpells 失败:', e); return [] }),
     lcu.getQueues().catch((e) => { logger.warn('[Assets] getQueues 失败:', e); return [] }),
@@ -152,14 +157,17 @@ async function tryInit(attempt: number) {
     lcu.getPerks().catch((e) => { logger.warn('[Assets] getPerks 失败:', e); return [] }),
     lcu.getPerkStyles().catch((e) => { logger.warn('[Assets] getPerkStyles 失败:', e); return { styles: [] } }),
     lcu.getChampionSummary().catch((e) => { logger.warn('[Assets] getChampionSummary 失败:', e); return [] }),
+    lcu.getAugments().catch((e) => { logger.warn('[Assets] getAugments 失败:', e); return [] }),
   ])
 
   // 只填充获取到的数据（失败的返回空数组，for 循环自然跳过）
   for (const item of items) {
     if (item.id > 0 && item.iconPath) itemMap.set(item.id, normalizePath(item.iconPath))
+    if (item.id > 0 && item.name) itemNameMap.set(item.id, item.name)
   }
   for (const spell of spells) {
     if (spell.id > 0 && spell.iconPath) spellMap.set(spell.id, normalizePath(spell.iconPath))
+    if (spell.id > 0 && spell.name) spellNameMap.set(spell.id, spell.name)
   }
   for (const queue of queues) {
     queueMap.set(queue.id, queue)
@@ -169,9 +177,11 @@ async function tryInit(attempt: number) {
   }
   for (const perk of perks) {
     if (perk.id > 0 && perk.iconPath) perkMap.set(perk.id, normalizePath(perk.iconPath))
+    if (perk.id > 0 && perk.name) perkNameMap.set(perk.id, perk.name)
   }
   for (const style of perkStyles.styles) {
     if (style.id > 0 && style.iconPath) perkStyleMap.set(style.id, normalizePath(style.iconPath))
+    if (style.id > 0 && style.name) perkStyleNameMap.set(style.id, style.name)
   }
   for (const champ of champions) {
     if (champ.id > 0) {
@@ -183,11 +193,20 @@ async function tryInit(attempt: number) {
       })
     }
   }
+  for (const augment of augments) {
+    if (augment.id > 0) {
+      augmentMap.set(augment.id, {
+        name: augment.nameTRA || String(augment.id),
+        iconPath: augment.augmentSmallIconPath ? normalizePath(augment.augmentSmallIconPath) : '',
+        rarity: augment.rarity || '',
+      })
+    }
+  }
 
   logger.info(
-    '[Assets] 资源映射初始化 (attempt %d) → 装备 %d, 技能 %d, 符文 %d, 符文系 %d, 队列 %d, 地图 %d, 英雄 %d',
+    '[Assets] 资源映射初始化 (attempt %d) → 装备 %d, 技能 %d, 符文 %d, 符文系 %d, 强化符文 %d, 队列 %d, 地图 %d, 英雄 %d',
     attempt + 1,
-    itemMap.size, spellMap.size, perkMap.size, perkStyleMap.size, queueMap.size, mapDataMap.size, championMap.size,
+    itemMap.size, spellMap.size, perkMap.size, perkStyleMap.size, augmentMap.size, queueMap.size, mapDataMap.size, championMap.size,
   )
 
   // 判断是否有关键资源缺失，决定是否重试
@@ -224,9 +243,19 @@ export function getItemIcon(id: number): string {
   return itemMap.get(id) ?? ''
 }
 
+/** 获取装备名称 */
+export function getItemName(id: number): string {
+  return itemNameMap.get(id) ?? String(id)
+}
+
 /** 获取召唤师技能图标路径 */
 export function getSpellIcon(id: number): string {
   return spellMap.get(id) ?? ''
+}
+
+/** 获取召唤师技能名称 */
+export function getSpellName(id: number): string {
+  return spellNameMap.get(id) ?? String(id)
 }
 
 /** 获取单个符文图标路径（基石符文等） */
@@ -234,9 +263,24 @@ export function getPerkIcon(id: number): string {
   return perkMap.get(id) ?? ''
 }
 
+/** 获取单个符文名称 */
+export function getPerkName(id: number): string {
+  return perkNameMap.get(id) ?? String(id)
+}
+
 /** 获取符文系图标路径（主系/副系） */
 export function getPerkStyleIcon(id: number): string {
   return perkStyleMap.get(id) ?? ''
+}
+
+/** 获取符文系名称 */
+export function getPerkStyleName(id: number): string {
+  return perkStyleNameMap.get(id) ?? String(id)
+}
+
+/** 获取强化符文 / Arena Augment 信息 */
+export function getAugmentInfo(id: number): { name: string; iconPath: string; rarity: string } | undefined {
+  return augmentMap.get(id)
 }
 
 /** 通过 queueId 获取队列名称（中文），如 "极地大乱斗"、"排位赛 单排/双排" */

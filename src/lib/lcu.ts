@@ -980,6 +980,11 @@ class LCUManager {
     return get('/lol-game-data/assets/v1/perkstyles.json')
   }
 
+  /** 获取斗魂竞技场 / 海克斯模式强化符文数据 */
+  getAugments(): Promise<Array<{ id: number; nameTRA: string; augmentSmallIconPath: string; rarity: string }>> {
+    return get('/lol-game-data/assets/v1/cherry-augments.json')
+  }
+
 
   // ==================== 通知 ====================
 

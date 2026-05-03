@@ -100,6 +100,69 @@ export function DebugPage() {
     }
   }
 
+  const fetchOpggJson = async (path: string, params?: Record<string, string | number | undefined>) => {
+    const url = new URL(`https://lol-api-champion.op.gg${path}`)
+    Object.entries(params ?? {}).forEach(([key, value]) => {
+      if (value != null && value !== '') url.searchParams.set(key, String(value))
+    })
+
+    const startedAt = performance.now()
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 10000)
+
+    try {
+      const resp = await fetch(url.toString(), {
+        method: 'GET',
+        mode: 'cors',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      })
+      const elapsedMs = Math.round(performance.now() - startedAt)
+      const text = await resp.text()
+      let body: unknown = text
+      try {
+        body = text ? JSON.parse(text) : null
+      } catch {
+        body = text.slice(0, 1000)
+      }
+
+      return {
+        url: url.toString(),
+        ok: resp.ok,
+        status: resp.status,
+        statusText: resp.statusText,
+        elapsedMs,
+        contentType: resp.headers.get('content-type') ?? '',
+        dataPreview: Array.isArray(body) ? body.slice(0, 10) : body,
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {
+        url: url.toString(),
+        ok: false,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        error: message,
+        hint: message.includes('abort')
+          ? '请求超时。可能是网络不可达，或客户端环境阻止了外部请求。'
+          : '如果这里是 Failed to fetch / NetworkError，且 DevTools Console 有 CORS 字样，说明当前注入页不能直接请求 OP.GG 接口。',
+      }
+    } finally {
+      window.clearTimeout(timer)
+    }
+  }
+
+  const getOpggDebugChampionId = async () => {
+    if (selectedChampId > 0) return selectedChampId
+    try {
+      const session = await lcu.getChampSelectSession()
+      const local = session.myTeam.find((player) => player.cellId === session.localPlayerCellId)
+      if (local?.championId) return local.championId
+    } catch {
+      // ignore
+    }
+    return 238
+  }
+
   return (
     <div className="sona-settings">
       <h2 className="sona-settings-title">调试面板</h2>
@@ -315,7 +378,43 @@ export function DebugPage() {
           <SonaButton variant="primary" onClick={() => runAndLog('OP.GG 版本接口连通性', testOpggConnectivity)}>
             测试 OP.GG API
           </SonaButton>
+          <SonaButton onClick={() => runAndLog('OP.GG ranked 版本列表', () =>
+            fetchOpggJson('/api/global/champions/ranked/versions')
+          )}>
+            ranked 版本
+          </SonaButton>
+          <SonaButton onClick={() => runAndLog('OP.GG ranked 英雄列表', () =>
+            fetchOpggJson('/api/global/champions/ranked', { tier: 'platinum_plus' })
+          )}>
+            ranked 列表
+          </SonaButton>
         </div>
+        <div className="sona-debug-actions" style={{ marginTop: 8 }}>
+          <SonaButton onClick={() => runAndLog('OP.GG 单英雄 ranked', async () => {
+            const id = await getOpggDebugChampionId()
+            return fetchOpggJson(`/api/global/champions/ranked/${id}/mid`, { tier: 'platinum_plus' })
+          })}>
+            单英雄 ranked
+          </SonaButton>
+          <SonaButton onClick={() => runAndLog('OP.GG 单英雄 ARAM', async () => {
+            const id = await getOpggDebugChampionId()
+            return fetchOpggJson(`/api/global/champions/aram/${id}/none`, { tier: 'platinum_plus' })
+          })}>
+            单英雄 ARAM
+          </SonaButton>
+          <SonaButton onClick={() => runAndLog('OP.GG 单英雄 Arena', async () => {
+            const id = await getOpggDebugChampionId()
+            return fetchOpggJson(`/api/global/champions/arena/${id}`, { tier: 'all' })
+          })}>
+            单英雄 Arena
+          </SonaButton>
+          <SonaButton onClick={() => runAndLog('OP.GG ARAM Balance', () =>
+            fetchOpggJson('/api/contents/aram-balance')
+          )}>
+            ARAM Balance
+          </SonaButton>
+        </div>
+        <p className="sona-subtitle">单英雄接口优先使用「游戏资源」里选择的英雄；未选择时尝试当前选人英雄，最后用 238 兜底。</p>
       </SettingGroup>
 
       <SettingGroup title="聊天调试">
@@ -427,6 +526,9 @@ export function DebugPage() {
           </SonaButton>
           <SonaButton onClick={() => runAndLog('符文系 (perkstyles.json)', () => lcu.getPerkStyles())}>
             符文系
+          </SonaButton>
+          <SonaButton onClick={() => runAndLog('海克斯选择 (cherry-augments.json)', () => lcu.getAugments())}>
+          海克斯选择
           </SonaButton>
           <SonaButton onClick={() => runAndLog('好友列表 (friends)', () => lcu.getFriends())}>
             好友列表
