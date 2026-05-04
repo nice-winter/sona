@@ -8,7 +8,7 @@
 import { logger } from '@/index'
 import { store } from '@/lib/store'
 import { lcu, LcuEventUri, queueIdToTag } from '@/lib/lcu'
-import type { LCUEventMessage, GameflowPhase, ChampSelectSession, GameflowSession } from '@/lib/lcu'
+import type { LCUEventMessage, GameflowPhase, ChampSelectSession } from '@/lib/lcu'
 import { injector } from '@/lib/InjectorManager'
 import { sleep } from '@/lib/utils'
 import { updateBalanceBuffTooltip } from '@/lib/features/balance-buff-viewer'
@@ -590,42 +590,22 @@ function updateAnalyzeTeamPower(enabled: boolean) {
 
 // ==================== 选人阶段红蓝方提示 ====================
 
-function getKiwiMapName(session: GameflowSession): string {
-  const gameMode = session.gameData?.queue?.gameMode || session.map?.gameMode || ''
-  if (gameMode.toLowerCase() !== 'kiwi') return ''
-
-  const map = session.map
-  const mapMutator = (
-    (map as typeof map & { mapMutator?: string }).mapMutator
-    || map.gameMutator
-    || ''
-  ).toLowerCase()
-
-  if (!mapMutator) return ''
-  if (mapMutator === 'mapskin_ha_bilgewater') return '屠夫之桥'
-  if (mapMutator === 'mapskin_map12_bloom') return '莲华栈桥'
-  if (mapMutator === 'none' || mapMutator === 'default') return map.name || '嚎哭深渊'
-
-  return map.name ? `${map.name} (${mapMutator})` : mapMutator
-}
-
 async function sendSideIndicator() {
   try {
-    const [session, gameflowSession] = await Promise.all([
-      lcu.getChampSelectSession(),
-      lcu.getGameflowSession().catch(() => null),
-    ])
+    const session = await lcu.getChampSelectSession()
     const localPlayer = session.myTeam.find((p) => p.cellId === session.localPlayerCellId)
     const isBlue = localPlayer ? localPlayer.cellId < 5 : true
     const sideText = isBlue ? '🔵 蓝方 (左下方)' : '🔴 红方 (右上方)'
-    const mapText = gameflowSession ? getKiwiMapName(gameflowSession) : ''
 
-    const msg = `Sona助手 ♫   本局${sideText}${mapText ? `｜地图：${mapText}` : ''}`
+    // 注意：选人阶段暂时拿不到本局大乱斗随机地图。
+    // 实测 /lol-gameflow/v1/session 的 map.gameMutator / mapMutator 在 ChampSelect 阶段为空字符串，
+    // 客户端应当是进入游戏后才知道本局随机到嚎哭深渊、屠夫之桥或莲华栈桥，因此这里不展示地图名。
+    const msg = `Sona助手 ♫   本局${sideText}`
     const msgType = store.get('sideIndicatorMsgType') || 'celebration'
     for (let attempt = 0; attempt < 10; attempt++) {
       try {
         await lcu.sendChampSelectMessage(msg, msgType)
-        logger.info('红蓝方提示已发送 → %s%s', sideText, mapText ? ` | 地图: ${mapText}` : '')
+        logger.info('红蓝方提示已发送 → %s', sideText)
         break
       } catch {
         if (attempt < 9) {

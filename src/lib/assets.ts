@@ -19,17 +19,39 @@ function normalizePath(raw: string): string {
   return raw.toLowerCase()
 }
 
+/** Riot 资源描述里常带 HTML 标签，这里转成适合 tooltip 的纯文本。 */
+function normalizeDescription(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+
+  return raw
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(li|p|div)>/gi, '\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 // ==================== 映射表 ====================
 
 const itemMap = new Map<number, string>()
 const itemNameMap = new Map<number, string>()
+const itemDescriptionMap = new Map<number, string>()
+const itemPriceMap = new Map<number, number>()
 const spellMap = new Map<number, string>()
 const spellNameMap = new Map<number, string>()
 const perkMap = new Map<number, string>()
 const perkNameMap = new Map<number, string>()
+const perkDescriptionMap = new Map<number, string>()
 const perkStyleMap = new Map<number, string>()
 const perkStyleNameMap = new Map<number, string>()
-const augmentMap = new Map<number, { name: string; iconPath: string; rarity: string }>()
+const augmentMap = new Map<number, { name: string; iconPath: string; rarity: string; description: string }>()
 const queueMap = new Map<number, GameQueue>()
 const mapDataMap = new Map<number, { id: number; name: string; gameModeName: string; [key: string]: unknown }>()
 
@@ -164,6 +186,12 @@ async function tryInit(attempt: number) {
   for (const item of items) {
     if (item.id > 0 && item.iconPath) itemMap.set(item.id, normalizePath(item.iconPath))
     if (item.id > 0 && item.name) itemNameMap.set(item.id, item.name)
+    if (item.id > 0) {
+      const description = normalizeDescription(item.description ?? item.shortDescription ?? item.longDescription)
+      if (description) itemDescriptionMap.set(item.id, description)
+      const price = item.priceTotal ?? item.price ?? 0
+      if (Number.isFinite(price) && price > 0) itemPriceMap.set(item.id, price)
+    }
   }
   for (const spell of spells) {
     if (spell.id > 0 && spell.iconPath) spellMap.set(spell.id, normalizePath(spell.iconPath))
@@ -178,6 +206,10 @@ async function tryInit(attempt: number) {
   for (const perk of perks) {
     if (perk.id > 0 && perk.iconPath) perkMap.set(perk.id, normalizePath(perk.iconPath))
     if (perk.id > 0 && perk.name) perkNameMap.set(perk.id, perk.name)
+    if (perk.id > 0) {
+      const description = normalizeDescription(perk.shortDesc ?? perk.longDesc ?? perk.description)
+      if (description) perkDescriptionMap.set(perk.id, description)
+    }
   }
   for (const style of perkStyles.styles) {
     if (style.id > 0 && style.iconPath) perkStyleMap.set(style.id, normalizePath(style.iconPath))
@@ -199,6 +231,7 @@ async function tryInit(attempt: number) {
         name: augment.nameTRA || String(augment.id),
         iconPath: augment.augmentSmallIconPath ? normalizePath(augment.augmentSmallIconPath) : '',
         rarity: augment.rarity || '',
+        description: normalizeDescription(augment.descTRA ?? augment.descriptionTRA ?? augment.tooltipTRA),
       })
     }
   }
@@ -248,6 +281,16 @@ export function getItemName(id: number): string {
   return itemNameMap.get(id) ?? String(id)
 }
 
+/** 获取装备完整信息（名称、图标、描述） */
+export function getItemInfo(id: number): { name: string; iconPath: string; description: string; price: number } {
+  return {
+    name: itemNameMap.get(id) ?? String(id),
+    iconPath: itemMap.get(id) ?? '',
+    description: itemDescriptionMap.get(id) ?? '',
+    price: itemPriceMap.get(id) ?? 0,
+  }
+}
+
 /** 获取召唤师技能图标路径 */
 export function getSpellIcon(id: number): string {
   return spellMap.get(id) ?? ''
@@ -268,6 +311,15 @@ export function getPerkName(id: number): string {
   return perkNameMap.get(id) ?? String(id)
 }
 
+/** 获取单个符文完整信息（名称、图标、描述） */
+export function getPerkInfo(id: number): { name: string; iconPath: string; description: string } {
+  return {
+    name: perkNameMap.get(id) ?? String(id),
+    iconPath: perkMap.get(id) ?? '',
+    description: perkDescriptionMap.get(id) ?? '',
+  }
+}
+
 /** 获取符文系图标路径（主系/副系） */
 export function getPerkStyleIcon(id: number): string {
   return perkStyleMap.get(id) ?? ''
@@ -279,7 +331,7 @@ export function getPerkStyleName(id: number): string {
 }
 
 /** 获取强化符文 / Arena Augment 信息 */
-export function getAugmentInfo(id: number): { name: string; iconPath: string; rarity: string } | undefined {
+export function getAugmentInfo(id: number): { name: string; iconPath: string; rarity: string; description: string } | undefined {
   return augmentMap.get(id)
 }
 

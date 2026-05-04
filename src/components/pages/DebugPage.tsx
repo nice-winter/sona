@@ -8,6 +8,7 @@ import type { GameAnalysisModalProps } from '@/components/ui/GameAnalysisModal'
 import { store } from '@/lib/store'
 import { lcu, SGP_SERVERS } from '@/lib/lcu'
 import { searchChampions, type ChampionInfo, getChampionBalanceMeta, getAllChampionBalances } from '@/lib/assets'
+import { openOpggBuildRecommendationDebugPanel } from '@/lib/features/opgg-build-recommendation'
 import { logger } from '@/index'
 import '@/styles/SettingsPage.css'
 
@@ -26,6 +27,7 @@ export function DebugPage() {
   const [selectedChampId, setSelectedChampId] = useState(0)
   const [gameAnalysisOpen, setGameAnalysisOpen] = useState(false)
   const champRef = useRef<HTMLDivElement>(null)
+  const opggPanelButtonRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -160,7 +162,7 @@ export function DebugPage() {
     } catch {
       // ignore
     }
-    return 238
+    return 68
   }
 
   return (
@@ -413,8 +415,24 @@ export function DebugPage() {
           )}>
             ARAM Balance
           </SonaButton>
+          <div ref={opggPanelButtonRef} style={{ display: 'inline-block' }}>
+            <SonaButton onClick={async () => {
+              const anchor = opggPanelButtonRef.current
+              if (!anchor) return
+
+              try {
+                const id = await getOpggDebugChampionId()
+                await openOpggBuildRecommendationDebugPanel(anchor, id)
+                setOutput(`✅ 已拉起 OP.GG 配装推荐面板\nchampionId=${id} · KIWI · queueId=3100`)
+              } catch (err) {
+                setOutput(`❌ 拉起 OP.GG 配装推荐面板失败\n${err instanceof Error ? err.message : String(err)}`)
+              }
+            }}>
+              拉起配装推荐面板
+            </SonaButton>
+          </div>
         </div>
-        <p className="sona-subtitle">单英雄接口优先使用「游戏资源」里选择的英雄；未选择时尝试当前选人英雄，最后用 238 兜底。</p>
+        <p className="sona-subtitle">单英雄接口和面板预览优先使用「游戏资源」里选择的英雄；未选择时尝试当前选人英雄，最后用兰博 68 兜底。</p>
       </SettingGroup>
 
       <SettingGroup title="聊天调试">

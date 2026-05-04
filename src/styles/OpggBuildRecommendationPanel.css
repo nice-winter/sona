@@ -1,0 +1,596 @@
+.sobp {
+  position: relative;
+  max-height: calc(100vh - 72px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgb(200 170 110 / 55%);
+  background: #010a13;
+  box-shadow: 0 0 40px rgb(0 0 0 / 82%);
+  color: #a09b8c;
+}
+
+.sobp::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sobp::-webkit-scrollbar-track {
+  background: #010a13;
+}
+
+.sobp::-webkit-scrollbar-thumb {
+  border: 1px solid #010a13;
+  border-radius: 999px;
+  background: rgb(200 170 110 / 45%);
+}
+
+.sobp-ambient {
+  position: absolute;
+  top: -28px;
+  left: 25%;
+  width: 50%;
+  height: 130px;
+  background: rgb(200 170 110 / 6%);
+  filter: blur(70px);
+  pointer-events: none;
+}
+
+.sobp-titlebar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #3c2e16;
+  background: linear-gradient(90deg, #1e2328 0%, #010a13 100%);
+}
+
+.sobp-title-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.sobp-title-text {
+  min-width: 0;
+}
+
+.sobp-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #f0e6d2;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.sobp-title-mark {
+  flex: 0 0 auto;
+  color: #c8aa6e;
+  font-size: 13px;
+}
+
+.sobp-mode-tag {
+  flex: 0 0 auto;
+  padding-left: 10px;
+  border-left: 1px solid #3c2e16;
+  color: rgb(160 155 140 / 72%);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.sobp-title-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.sobp-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgb(200 170 110 / 12%);
+  border-radius: 2px;
+  background: rgb(1 10 19 / 65%);
+  color: rgb(160 155 140 / 80%);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 28px;
+  transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+}
+
+.sobp-close:hover {
+  border-color: rgb(232 64 87 / 35%);
+  background: rgb(232 64 87 / 10%);
+  color: #e84057;
+}
+
+.sobp-champion-ring {
+  width: 45px;
+  height: 45px;
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 2px solid #c8aa6e;
+  border-radius: 50%;
+  background: #010a13;
+  box-shadow: 0 0 16px rgb(200 170 110 / 20%);
+}
+
+.sobp-champion-ring img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.sobp-tags {
+  margin-top: 2px;
+  color: rgb(160 155 140 / 62%);
+  font-size: 11px;
+}
+
+.sobp-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sobp-summary-card {
+  display: inline-flex;
+  min-width: 92px;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 7px;
+  text-align: right;
+}
+
+.sobp-summary-card + .sobp-summary-card {
+  padding-left: 16px;
+  border-left: 1px solid #3c2e16;
+}
+
+.sobp-summary-label {
+  color: #c8aa6e;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.sobp-summary-value {
+  color: #f0e6d2;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.sobp-summary-card--win-high .sobp-summary-label,
+.sobp-summary-card--win-high .sobp-summary-value {
+  color: #21d07a;
+}
+
+.sobp-summary-card--win-low .sobp-summary-label,
+.sobp-summary-card--win-low .sobp-summary-value {
+  color: #e84057;
+}
+
+.sobp-summary-card--win-even .sobp-summary-label,
+.sobp-summary-card--win-even .sobp-summary-value {
+  color: #c8aa6e;
+}
+
+.sobp-summary-card--pick .sobp-summary-label,
+.sobp-summary-card--pick .sobp-summary-value {
+  color: #f0e6d2;
+}
+
+.sobp-summary-card--tier {
+  min-width: 46px;
+}
+
+.sobp-summary-card--tier .sobp-summary-value {
+  color: #c8aa6e;
+  font-size: 19px;
+  letter-spacing: 0.5px;
+}
+
+.sobp-body {
+  position: relative;
+  z-index: 1;
+  padding: 22px 24px;
+  background: #0a0f16;
+}
+
+.sobp-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1.5fr 0.82fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.sobp-section {
+  display: flex;
+  min-height: 168px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sobp-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 2px;
+  color: #c8aa6e;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.sobp-section-title span {
+  display: inline-block;
+  width: 4px;
+  height: 14px;
+  background: #c8aa6e;
+}
+
+.sobp-section-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgb(60 46 22 / 75%);
+  border-radius: 3px;
+  background: rgb(30 35 40 / 50%);
+}
+
+.sobp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 1.5%);
+}
+
+.sobp-row-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.sobp-rank {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3c2e16;
+  border-radius: 3px;
+  background: #1e2328;
+  color: #a09b8c;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sobp-rank--first {
+  border-color: rgb(200 170 110 / 55%);
+  background: rgb(200 170 110 / 16%);
+  color: #c8aa6e;
+}
+
+.sobp-icons {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sobp-icons--items {
+  gap: 4px;
+  min-width: 0;
+}
+
+.sobp-icon-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sobp-arrow {
+  margin: 0 1px;
+  color: #3c2e16;
+  font-size: 10px;
+}
+
+.sobp-icon {
+  flex: 0 0 auto;
+  border: 1px solid #3c2e16;
+  background: #1e2328;
+  object-fit: cover;
+}
+
+.sobp-icon-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.sobp-icon--missing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #785a28;
+  font-size: 10px;
+}
+
+.sobp-official-tooltip {
+  position: fixed;
+  z-index: 20050;
+  width: max-content;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 16px 18px;
+  border: 1px solid #785a28;
+  background: #1e2328;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 70%);
+  color: #cdbe91;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sobp-official-tooltip--ready {
+  opacity: 1;
+}
+
+.sobp-official-tooltip::after {
+  position: absolute;
+  left: var(--sobp-tooltip-arrow-left);
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid #785a28;
+  border-bottom: 1px solid #785a28;
+  background: #1e2328;
+  content: '';
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.sobp-official-tooltip--top::after {
+  top: 100%;
+  margin-top: -5px;
+}
+
+.sobp-official-tooltip--bottom::after {
+  bottom: 100%;
+  margin-bottom: -5px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.sobp-official-tooltip-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.sobp-official-tooltip-icon {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #785a28;
+  background: #010a13;
+  color: #785a28;
+  font-size: 12px;
+}
+
+.sobp-official-tooltip-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sobp-official-tooltip-titlebox {
+  min-width: 0;
+}
+
+.sobp-official-tooltip-title {
+  overflow: hidden;
+  color: #f0e6d2;
+  font-size: 15px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sobp-official-tooltip-price,
+.sobp-official-tooltip-subtitle {
+  margin-top: 5px;
+  color: #cdbe91;
+  font-size: 12px;
+}
+
+.sobp-official-tooltip-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sobp-gold-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  background-color: #cdbe91;
+  -webkit-mask-image: url('/fe/lol-match-history/icon_gold.png');
+  mask-image: url('/fe/lol-match-history/icon_gold.png');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.sobp-official-tooltip-desc {
+  margin-top: 14px;
+  color: #cdbe91;
+  font-size: 12px;
+  white-space: pre-line;
+}
+
+.sobp-official-tooltip-stats {
+  color: #16c8d9;
+}
+
+.sobp-official-tooltip-separator {
+  height: 1px;
+  margin: 12px 0;
+  background: linear-gradient(90deg, transparent 0%, rgb(120 90 40 / 85%) 18%, rgb(200 170 110 / 65%) 50%, rgb(120 90 40 / 85%) 82%, transparent 100%);
+}
+
+.sobp-official-tooltip-effect-title {
+  color: #f0e6d2;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sobp-official-tooltip-effect-body {
+  margin-top: 5px;
+  color: #cdbe91;
+}
+
+.sobp-stat {
+  display: flex;
+  width: 46px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.sobp-stat span {
+  color: #f0e6d2;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sobp-stat-track {
+  width: 100%;
+  height: 4px;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #010a13;
+}
+
+.sobp-stat-fill {
+  height: 100%;
+  background: #c8aa6e;
+}
+
+.sobp-runes {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid rgb(60 46 22 / 90%);
+  border-radius: 3px;
+  background: #010a13;
+}
+
+.sobp-rune-group,
+.sobp-small-runes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sobp-rune-group:first-child {
+  gap: 6px;
+}
+
+.sobp-rune-divider {
+  width: 1px;
+  height: 26px;
+  margin: 0 2px;
+  background: #3c2e16;
+}
+
+.sobp-augment-wrap {
+  margin-top: 20px;
+}
+
+.sobp-augment-group + .sobp-augment-group {
+  margin-top: 10px;
+}
+
+.sobp-augment-rarity {
+  margin: 2px 0 6px;
+  color: #785a28;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sobp-augment-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sobp-augment {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgb(200 170 110 / 12%);
+  border-radius: 3px;
+  background: rgb(1 10 19 / 72%);
+}
+
+.sobp-augment-info {
+  min-width: 0;
+}
+
+.sobp-augment-name {
+  overflow: hidden;
+  color: #f0e6d2;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sobp-augment-meta {
+  color: #7e7e7e;
+  font-size: 10px;
+}
+
+.sobp-empty {
+  padding: 12px;
+  color: #5c5b57;
+  font-style: italic;
+}
+
+.sobp-message {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgb(200 170 110 / 16%);
+  background: rgb(30 35 40 / 40%);
+  color: #a09b8c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.sobp-message--warning {
+  border-color: rgb(201 80 64 / 35%);
+  color: #cdbe91;
+}

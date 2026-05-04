@@ -965,8 +965,8 @@ class LCUManager {
     return get<string>('/lol-patch/v1/game-version')
   }
 
-  /** 获取所有物品数据（含 iconPath） */
-  getItems(): Promise<Array<{ id: number; iconPath: string; name: string }>> {
+  /** 获取所有物品数据（含 iconPath / description） */
+  getItems(): Promise<Array<{ id: number; iconPath: string; name: string; description?: string; shortDescription?: string; longDescription?: string; price?: number; priceTotal?: number }>> {
     return get('/lol-game-data/assets/v1/items.json')
   }
 
@@ -980,8 +980,8 @@ class LCUManager {
     return get('/lol-game-data/assets/v1/champion-summary.json')
   }
 
-  /** 获取所有符文数据（含 iconPath，对应单个符文 ID） */
-  getPerks(): Promise<Array<{ id: number; iconPath: string; name: string }>> {
+  /** 获取所有符文数据（含 iconPath / description，对应单个符文 ID） */
+  getPerks(): Promise<Array<{ id: number; iconPath: string; name: string; shortDesc?: string; longDesc?: string; description?: string }>> {
     return get('/lol-game-data/assets/v1/perks.json')
   }
 
@@ -991,7 +991,7 @@ class LCUManager {
   }
 
   /** 获取斗魂竞技场 / 海克斯模式强化符文数据 */
-  getAugments(): Promise<Array<{ id: number; nameTRA: string; augmentSmallIconPath: string; rarity: string }>> {
+  getAugments(): Promise<Array<{ id: number; nameTRA: string; augmentSmallIconPath: string; rarity: string; descTRA?: string; descriptionTRA?: string; tooltipTRA?: string }>> {
     return get('/lol-game-data/assets/v1/cherry-augments.json')
   }
 

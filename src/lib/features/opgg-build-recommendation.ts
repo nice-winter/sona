@@ -9,32 +9,20 @@
 
 import { logger } from '@/index'
 import { injector } from '@/lib/InjectorManager'
-import {
-  getAugmentInfo,
-  getChampionById,
-  getItemIcon,
-  getItemName,
-  getPerkIcon,
-  getPerkName,
-  getPerkStyleIcon,
-  getPerkStyleName,
-  getQueue,
-  getQueueName,
-  getSpellIcon,
-  getSpellName,
-} from '@/lib/assets'
+import { createElement } from 'react'
+import { flushSync } from 'react-dom'
+import { createRoot, type Root } from 'react-dom/client'
+import { getQueue, getQueueName } from '@/lib/assets'
+import { OpggBuildRecommendationPanel, type BuildRecommendation, type RecommendationContext } from '@/components/ui/OpggBuildRecommendationPanel'
 import { lcu, LcuEventUri, type ChampSelectSession, type LCUEventMessage } from '@/lib/lcu'
 import {
-  normalizeOpggVersion,
   opggApi,
   type OpggAugmentGroup,
   type OpggArenaModeChampion,
   type OpggChampion,
-  type OpggItemBuild,
   type OpggMode,
   type OpggNormalModeChampion,
   type OpggPosition,
-  type OpggRuneBuild,
   type OpggTier,
 } from '@/lib/opgg-api'
 import type { GameflowPhase } from '@/types/lcu'
@@ -42,31 +30,6 @@ import type { GameflowPhase } from '@/types/lcu'
 const TARGET_SELECTOR = '.toggle-ability-previews-button'
 const HIJACK_ATTR = 'data-sona-opgg-build-hijacked'
 const PANEL_ID = 'sona-opgg-build-panel'
-
-interface RecommendationContext {
-  championId: number
-  queueId: number
-  gameVersion: string
-  gameMode: string
-  position: OpggPosition
-}
-
-interface BuildRecommendation {
-  mode: OpggMode
-  modeLabel: string
-  version: string
-  position: OpggPosition
-  summary: string[]
-  summonerSpells: OpggItemBuild[]
-  starterItems: OpggItemBuild[]
-  boots: OpggItemBuild[]
-  coreItems: OpggItemBuild[]
-  prismItems: OpggItemBuild[]
-  lastItems: OpggItemBuild[]
-  runePages: OpggRuneBuild[]
-  augments: Array<{ rarity: number; items: Array<{ id: number; pickRate: number; averagePlace: number; firstPlace: number }> }>
-  warning?: string
-}
 
 interface RecommendationCacheEntry {
   key: string
@@ -93,6 +56,7 @@ const boundElements: Array<{ el: HTMLElement; handler: EventListener; originalTe
 const recommendationCache = new Map<string, RecommendationCacheEntry>()
 let outsideCloseHandler: ((event: MouseEvent) => void) | null = null
 let activePanelKey = ''
+let panelReactRoot: Root | null = null
 
 function getLocalChampionId(session: ChampSelectSession): number {
   const localPlayer = session.myTeam.find((player) => player.cellId === session.localPlayerCellId)
@@ -218,15 +182,6 @@ function trimRecommendationCache() {
   for (const entry of entries.slice(0, recommendationCache.size - MAX_RECOMMENDATION_CACHE_SIZE)) {
     recommendationCache.delete(entry.key)
   }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 async function refreshContext(session?: ChampSelectSession) {
@@ -377,17 +332,11 @@ function getSummaryLines(champion: OpggChampion): string[] {
   ]
 }
 
-function formatPercent(value: number | undefined): string {
-  if (!Number.isFinite(value)) return '-'
-  return `${((value ?? 0) * 100).toFixed(1)}%`
-}
-
-function formatPlace(value: number | undefined): string {
-  if (!Number.isFinite(value)) return '-'
-  return `${(value ?? 0).toFixed(2)}名`
-}
-
 function closePanel() {
+  if (panelReactRoot) {
+    panelReactRoot.unmount()
+    panelReactRoot = null
+  }
   document.getElementById(PANEL_ID)?.remove()
   activePanelKey = ''
   if (outsideCloseHandler) {
@@ -396,14 +345,16 @@ function closePanel() {
   }
 }
 
-async function openRecommendationPanel(anchor: HTMLElement) {
-  if (currentContext.championId <= 0) {
+async function openRecommendationPanel(anchor: HTMLElement, contextOverride?: RecommendationContext) {
+  if (contextOverride) {
+    currentContext = { ...contextOverride }
+  } else if (currentContext.championId <= 0) {
     await refreshContext()
   } else {
     void refreshContext()
   }
 
-  const context = { ...currentContext }
+  const context = contextOverride ? { ...contextOverride } : { ...currentContext }
   const cacheEntry = ensureRecommendationPrefetch(context)
   const recommendation = cacheEntry?.data ?? null
   const loadError = cacheEntry?.error ?? ''
@@ -441,9 +392,9 @@ async function openRecommendationPanel(anchor: HTMLElement) {
 
   const view = document.createElement('div')
   view.style.cssText = [
-    'width:920px',
+    'width:1060px',
     'max-width:calc(100vw - 56px)',
-    'background:#1a1c21',
+    'background:#010a13',
     'direction:ltr',
     'color:#a09b8c',
     'font-family:var(--font-body), -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
@@ -455,9 +406,9 @@ async function openRecommendationPanel(anchor: HTMLElement) {
   ].join(';')
   tooltip.appendChild(view)
 
-  view.innerHTML = renderRecommendationPanelContent(context, recommendation, loadError, isLoading)
-
-  view.querySelector('[data-sona-close]')?.addEventListener('click', closePanel)
+  const reactRoot = createRoot(view)
+  panelReactRoot = reactRoot
+  renderRecommendationPanel(reactRoot, context, recommendation, loadError, isLoading)
   manager.appendChild(root)
 
   const rect = anchor.getBoundingClientRect()
@@ -484,15 +435,15 @@ async function openRecommendationPanel(anchor: HTMLElement) {
 
   if (cacheEntry && isLoading) {
     cacheEntry.promise.then(() => {
-      if (document.getElementById(PANEL_ID) !== root || activePanelKey !== cacheEntry.key) return
+      if (document.getElementById(PANEL_ID) !== root || activePanelKey !== cacheEntry.key || panelReactRoot !== reactRoot) return
 
-      view.innerHTML = renderRecommendationPanelContent(
+      renderRecommendationPanel(
+        reactRoot,
         cacheEntry.context,
         cacheEntry.data ?? null,
         cacheEntry.error ?? '',
         false,
       )
-      view.querySelector('[data-sona-close]')?.addEventListener('click', closePanel)
 
       const updatedRect = anchor.getBoundingClientRect()
       const updatedWidth = container.offsetWidth
@@ -505,166 +456,33 @@ async function openRecommendationPanel(anchor: HTMLElement) {
   }
 }
 
-function renderRecommendationPanelContent(
+export async function openOpggBuildRecommendationDebugPanel(anchor: HTMLElement, championId = 68) {
+  const gameVersion = await lcu.getGameVersion().catch(() => currentContext.gameVersion)
+  await openRecommendationPanel(anchor, {
+    championId,
+    queueId: 3100,
+    gameVersion,
+    gameMode: 'KIWI',
+    position: 'none',
+  })
+}
+
+function renderRecommendationPanel(
+  root: Root,
   context: RecommendationContext,
   recommendation: BuildRecommendation | null,
   loadError: string,
   isLoading: boolean,
-): string {
-  const champion = getChampionById(context.championId)
-  const championName = champion ? `${champion.title} ${champion.name}` : '未识别英雄'
-  const escapedChampionName = escapeHtml(championName)
-  const versionText = recommendation?.version || normalizeOpggVersion(context.gameVersion) || context.gameVersion || '未知版本'
-  const queueText = recommendation?.modeLabel || (context.queueId > 0 ? getQueueName(context.queueId) : '未知队列')
-
-  return `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #3c2e16;background:#1e2328b8;">
-      <div>
-        <div style="color:#c8aa6e;font-size:15px;font-weight:700;letter-spacing:2px;">配装推荐</div>
-        <div style="margin-top:4px;color:#7e7e7e;font-size:12px;">OP.GG · ${escapeHtml(versionText)} · ${escapeHtml(queueText)}</div>
-      </div>
-      <button type="button" data-sona-close style="width:28px;height:28px;border:1px solid transparent;background:#010a1399;color:#c8aa6e80;cursor:pointer;font-size:18px;line-height:24px;">×</button>
-    </div>
-    <div style="padding:18px 20px;">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-        <img src="/lol-game-data/assets/v1/champion-icons/${context.championId}.png" alt="" style="width:48px;height:48px;border-radius:50%;border:1px solid #c8aa6e;background:#010a13;object-fit:cover;" />
-        <div>
-          <div style="color:#f0e6d2;font-size:16px;font-weight:700;">${escapedChampionName}</div>
-          <div style="margin-top:3px;color:#785a28;font-size:12px;font-family:monospace;">championId=${context.championId || 'N/A'} · ${escapeHtml(context.gameMode || 'unknown')} · ${escapeHtml(recommendation?.position ?? context.position)}</div>
-        </div>
-        <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-          ${renderSummaryChips(recommendation?.summary ?? [])}
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1.15fr 1.25fr .9fr;gap:12px;align-items:stretch;">
-        ${renderItemSection('核心装备', recommendation?.coreItems, 3)}
-        ${renderRuneSection('符文推荐', recommendation?.runePages)}
-        ${renderSpellSection('召唤师技能', recommendation?.summonerSpells, 2)}
-        ${(isKiwiMode(context) || recommendation?.mode === 'arena')
-    ? renderAugmentSection('海克斯推荐', recommendation?.augments)
-    : ''}
-      </div>
-      ${isLoading ? renderMessage('正在后台加载 OP.GG 推荐数据，完成后会自动刷新。', false) : ''}
-      ${loadError ? renderMessage(`OP.GG 请求失败：${loadError}`, true) : ''}
-      ${recommendation?.warning ? renderMessage(recommendation.warning, true) : ''}
-      ${!isLoading && !loadError && !recommendation ? renderMessage('暂无可用 OP.GG 推荐数据。', false) : ''}
-    </div>
-  `
-}
-
-function renderSummaryChips(values: string[]): string {
-  return values.map((value) => `
-    <span style="padding:3px 7px;background:#010a1399;border:1px solid rgba(200,170,110,0.22);color:#c8aa6e;font-size:11px;">${escapeHtml(value)}</span>
-  `).join('')
-}
-
-function renderSection(title: string, content: string, minHeight = 136): string {
-  return `
-    <div style="min-height:${minHeight}px;padding:12px;background:#010a1399;border:1px solid #3c2e16;">
-      <div style="color:#c8aa6e;font-size:12px;font-weight:700;letter-spacing:1px;">${escapeHtml(title)}</div>
-      ${content || '<div style="margin-top:7px;color:#5c5b57;font-style:italic;">暂无数据</div>'}
-    </div>
-  `
-}
-
-function renderItemSection(title: string, builds: OpggItemBuild[] | undefined, itemLimit: number): string {
-  const content = builds?.slice(0, 4).map((build, index) => `
-    <div style="display:grid;grid-template-columns:20px 1fr auto;align-items:center;gap:8px;margin-top:11px;">
-      <div style="color:#785a28;font-size:11px;">#${index + 1}</div>
-      <div style="display:flex;gap:5px;min-width:0;">
-        ${build.ids.slice(0, itemLimit).map((id) => renderIcon(getItemIcon(id), getItemName(id), 28)).join('')}
-      </div>
-      <div style="margin-left:auto;color:#7e7e7e;font-size:11px;white-space:nowrap;">${formatPercent(build.pick_rate)}</div>
-    </div>
-  `).join('')
-
-  return renderSection(title, content ?? '')
-}
-
-function renderSpellSection(title: string, builds: OpggItemBuild[] | undefined, limit: number): string {
-  const content = builds?.slice(0, limit).map((build, index) => `
-    <div style="display:grid;grid-template-columns:20px 1fr auto;align-items:center;gap:8px;margin-top:14px;">
-      <div style="color:#785a28;font-size:11px;">#${index + 1}</div>
-      <div style="display:flex;gap:6px;">
-        ${build.ids.map((id) => renderIcon(getSpellIcon(id), getSpellName(id), 32)).join('')}
-      </div>
-      <div style="margin-left:auto;color:#7e7e7e;font-size:11px;">${formatPercent(build.pick_rate)}</div>
-    </div>
-  `).join('')
-
-  return renderSection(title, content ?? '')
-}
-
-function renderRuneSection(title: string, runes: OpggRuneBuild[] | undefined): string {
-  const content = runes?.slice(0, 2).map((rune, index) => `
-    <div style="display:grid;grid-template-columns:20px 1fr auto;align-items:center;gap:8px;margin-top:13px;">
-      <div style="color:#785a28;font-size:11px;">#${index + 1}</div>
-      <div style="display:flex;align-items:center;gap:5px;min-width:0;">
-        ${renderIcon(getPerkStyleIcon(rune.primary_page_id), getPerkStyleName(rune.primary_page_id), 24)}
-        ${rune.primary_rune_ids.slice(0, 4).map((id) => renderIcon(getPerkIcon(id), getPerkName(id), 24)).join('')}
-        <span style="width:1px;height:22px;background:#3c2e16;margin:0 2px;"></span>
-        ${renderIcon(getPerkStyleIcon(rune.secondary_page_id), getPerkStyleName(rune.secondary_page_id), 24)}
-        ${rune.secondary_rune_ids.slice(0, 2).map((id) => renderIcon(getPerkIcon(id), getPerkName(id), 24)).join('')}
-      </div>
-      <div style="margin-left:auto;color:#7e7e7e;font-size:11px;white-space:nowrap;">${formatPercent(rune.pick_rate)}</div>
-    </div>
-  `).join('')
-
-  return renderSection(title, content ?? '')
-}
-
-function renderAugmentSection(title: string, groups: BuildRecommendation['augments'] | undefined): string {
-  const content = groups?.map((group) => `
-    <div style="margin-top:10px;">
-      <div style="margin-bottom:5px;color:#785a28;font-size:11px;">${escapeHtml(getAugmentRarityLabel(group.rarity))}</div>
-      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
-        ${group.items.map((augment) => {
-    const info = getAugmentInfo(augment.id)
-    return `
-          <div style="display:flex;align-items:center;gap:7px;min-width:0;padding:6px;background:#1e232866;border:1px solid rgba(200,170,110,0.12);">
-            ${renderIcon(info?.iconPath ?? '', info?.name ?? String(augment.id), 28, getAugmentBorder(info?.rarity))}
-            <div style="min-width:0;">
-              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f0e6d2;font-size:11px;">${escapeHtml(info?.name ?? String(augment.id))}</div>
-              <div style="color:#7e7e7e;font-size:10px;">登场 ${formatPercent(augment.pickRate)} · 均排 ${formatPlace(augment.averagePlace)}</div>
-            </div>
-          </div>
-        `
-  }).join('')}
-      </div>
-    </div>
-  `).join('')
-
-  return `<div style="grid-column:1 / -1;">${renderSection(title, content ?? '', 164)}</div>`
-}
-
-function renderMessage(message: string, isWarning: boolean): string {
-  return `
-    <div style="margin-top:12px;padding:10px 12px;background:#1e232866;border:1px solid ${isWarning ? 'rgba(201,80,64,0.35)' : 'rgba(200,170,110,0.16)'};font-size:12px;line-height:1.6;color:${isWarning ? '#cdbe91' : '#a09b8c'};">
-      ${escapeHtml(message)}
-    </div>
-  `
-}
-
-function renderIcon(src: string, title: string, size: number, border = '#3c2e16'): string {
-  if (!src) {
-    return `<span title="${escapeHtml(title)}" style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border:1px solid ${border};background:#1e2328;color:#785a28;font-size:10px;">?</span>`
-  }
-
-  return `<img src="${escapeHtml(src)}" title="${escapeHtml(title)}" alt="" style="width:${size}px;height:${size}px;border:1px solid ${border};background:#1e2328;object-fit:cover;" />`
-}
-
-function getAugmentRarityLabel(rarity: number): string {
-  if (rarity === 1) return '银色'
-  if (rarity === 4) return '金色'
-  if (rarity === 8) return '棱彩'
-  return `稀有度 ${rarity}`
-}
-
-function getAugmentBorder(rarity: string | undefined): string {
-  if (rarity === 'kPrismatic') return '#b788ff'
-  if (rarity === 'kGold') return '#c8aa6e'
-  if (rarity === 'kSilver') return '#a09b8c'
-  return '#3c2e16'
+): void {
+  flushSync(() => {
+    root.render(createElement(OpggBuildRecommendationPanel, {
+      context,
+      recommendation,
+      loadError,
+      isLoading,
+      onClose: closePanel,
+    }))
+  })
 }
 
 function tryHijackAbilityPreviewPanel(): boolean {
