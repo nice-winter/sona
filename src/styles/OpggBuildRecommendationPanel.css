@@ -693,6 +693,15 @@
   background: #3c2e16;
 }
 
+.sobp-trend-wrap {
+  margin-top: 20px;
+}
+
+.sobp-trend-wrap .sobp-section {
+  height: auto;
+  min-height: 0;
+}
+
 .sobp-augment-wrap {
   margin-top: 20px;
 }

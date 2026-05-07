@@ -25,7 +25,7 @@ import { type OpggItemBuild, type OpggMode, type OpggPosition, type OpggRuneBuil
 import '@/styles/OpggBuildRecommendationPanel.css'
 
 const MAX_RECOMMENDATION_ROWS = 3
-const RANKED_MINI_CREST_BASE = 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests'
+const RANKED_MINI_CREST_BASE = '/fe/lol-static-assets/images/ranked-mini-crests'
 const OPGG_TIER_BASE_OPTIONS: Array<{ value: OpggTier; label: string }> = [
   { value: 'all', label: '全部段位' },
   { value: 'challenger', label: '最强王者' },
@@ -148,6 +148,10 @@ export function OpggBuildRecommendationPanel({
           <ItemSection title="核心装备" builds={recommendation?.coreItems} itemLimit={3} />
           <RuneSection title="符文搭配" runes={recommendation?.runePages} championName={championName} />
           <SpellSection title="召唤师技能" builds={recommendation?.summonerSpells} limit={MAX_RECOMMENDATION_ROWS} />
+        </div>
+
+        <div className="sobp-trend-wrap">
+          <ItemSection title="出装趋势" builds={recommendation?.lastItems} itemLimit={6} />
         </div>
 
         {showAugments && <AugmentSection title="海克斯推荐" groups={recommendation?.augments} />}
