@@ -16,6 +16,7 @@ import { getQueue, getQueueName } from '@/lib/assets'
 import { OpggBuildRecommendationPanel, type BuildRecommendation, type RecommendationContext } from '@/components/ui/OpggBuildRecommendationPanel'
 import { lcu, LcuEventUri, type ChampSelectSession, type LCUEventMessage } from '@/lib/lcu'
 import { store } from '@/lib/store'
+import { aramggApi, type AramggChampionRecommendation, type AramggChampionStatEntry, type AramggCoreItemBuild } from '@/lib/aramgg-api'
 import {
   opggApi,
   type OpggAugmentGroup,
@@ -25,6 +26,7 @@ import {
   type OpggNormalModeChampion,
   type OpggPosition,
   type OpggTier,
+  type OpggItemBuild,
 } from '@/lib/opgg-api'
 import type { GameflowPhase } from '@/types/lcu'
 
@@ -169,6 +171,7 @@ function getSelectedOpggTier(): OpggTier {
 }
 
 function getEffectiveOpggTier(context: RecommendationContext): OpggTier {
+  if (isKiwiMode(context)) return 'all'
   return resolveOpggMode(context) === 'arena' ? 'all' : getSelectedOpggTier()
 }
 
@@ -261,6 +264,11 @@ async function loadRecommendation(context: RecommendationContext): Promise<Build
   const mode = resolveOpggMode(context)
   const position = mode === 'ranked' ? (context.position === 'none' ? 'mid' : context.position) : 'none'
   const tier = getEffectiveOpggTier(context)
+
+  if (isKiwiMode(context)) {
+    return loadAramggKiwiRecommendation(context, mode, position, tier)
+  }
+
   const mainChampion = await getChampionWithVersionFallback({
     id: context.championId,
     mode,
@@ -268,22 +276,7 @@ async function loadRecommendation(context: RecommendationContext): Promise<Build
     position,
   })
 
-  let warning: string | undefined
-  let augmentGroups = getAugmentGroups(mainChampion)
-
-  if (isKiwiMode(context) && augmentGroups.length === 0) {
-    try {
-      const arenaChampion = await getChampionWithVersionFallback({
-        id: context.championId,
-        mode: 'arena',
-        tier: 'all',
-      })
-      augmentGroups = getAugmentGroups(arenaChampion)
-    } catch (err) {
-      warning = `KIWI 海克斯推荐请求失败：${err instanceof Error ? err.message : String(err)}`
-      logger.warn('[OPGG] KIWI 海克斯推荐请求失败:', err)
-    }
-  }
+  const augmentGroups = getAugmentGroups(mainChampion)
 
   const normal = isNormalChampion(mainChampion) ? mainChampion : null
   const arena = isArenaChampion(mainChampion) ? mainChampion : null
@@ -312,8 +305,128 @@ async function loadRecommendation(context: RecommendationContext): Promise<Build
       })),
     })),
     meta: getRecommendationMeta(mainChampion),
-    warning,
   }
+}
+
+async function loadAramggKiwiRecommendation(
+  context: RecommendationContext,
+  mode: OpggMode,
+  position: OpggPosition,
+  tier: OpggTier,
+): Promise<BuildRecommendation | null> {
+  const [opggChampion, aramgg] = await Promise.all([
+    getChampionWithVersionFallback({
+      id: context.championId,
+      mode,
+      tier,
+      position,
+    }).catch((err) => {
+      logger.warn('[OPGG] KIWI 基础配装请求失败，将只使用 ARAM.GG 数据:', err)
+      return null
+    }),
+    aramggApi.getChampionRecommendation(context.championId),
+  ])
+
+  const normal = opggChampion && isNormalChampion(opggChampion) ? opggChampion : null
+  const data = opggChampion?.data
+
+  return {
+    mode,
+    modeLabel: getModeLabel(mode, context),
+    version: aramgg.championStats?.version || opggChampion?.meta.version || context.gameVersion || '',
+    position,
+    summary: getAramggSummaryLines(aramgg),
+    summonerSpells: normal?.data.summoner_spells ?? [],
+    starterItems: [],
+    boots: data?.boots ?? [],
+    coreItems: mapAramggCoreItemBuilds(aramgg.coreItemBuilds),
+    prismItems: [],
+    lastItems: mapAramggItems(aramgg.items),
+    runePages: [],
+    augments: mapAramggAugments(aramgg.augments),
+    meta: undefined,
+  }
+}
+
+function getAramggSummaryLines(data: AramggChampionRecommendation): string[] {
+  const stats = data.championStats
+  return [
+    `总体胜率 ${formatRate(toNumber(stats?.win_rate))}`,
+    `登场 ${formatRate(toNumber(stats?.pick_rate))}`,
+    `Tier ${stats?.tier || '-'}`,
+  ]
+}
+
+function formatRate(value: number): string {
+  return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '-'
+}
+
+function toNumber(value: unknown): number {
+  const numberValue = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numberValue) ? numberValue : 0
+}
+
+function mapAramggCoreItemBuilds(builds: AramggCoreItemBuild[]): OpggItemBuild[] {
+  return builds.map((build) => {
+    const play = toNumber(build.games)
+    const win = toNumber(build.wins)
+    return {
+      ids: build.itemIds.split(',').map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0),
+      win,
+      play,
+      pick_rate: toNumber(build.pick_rate),
+    }
+  }).filter((build) => build.ids.length > 0)
+}
+
+function mapAramggItems(items: Record<string, AramggChampionStatEntry>): OpggItemBuild[] {
+  return Object.entries(items)
+    .map(([id, item]) => ({
+      ids: [Number(id)].filter((value) => Number.isFinite(value) && value > 0),
+      win: toNumber(item.num_win_games),
+      play: toNumber(item.num_games),
+      pick_rate: toNumber(item.pick_rate),
+      tier: Number(item.tier),
+    }))
+    .filter((item) => item.ids.length > 0)
+    .sort((a, b) => {
+      const tierDiff = (Number.isFinite(a.tier) ? a.tier : 99) - (Number.isFinite(b.tier) ? b.tier : 99)
+      return tierDiff || b.pick_rate - a.pick_rate
+    })
+    .map(({ tier: _tier, ...item }) => item)
+}
+
+function mapAramggAugments(augments: Record<string, AramggChampionStatEntry>): BuildRecommendation['augments'] {
+  const groups = new Map<number, Array<{ id: number; pickRate: number; winRate: number }>>()
+
+  Object.entries(augments).forEach(([id, augment]) => {
+    const augmentId = Number(id)
+    const tier = Number(augment.tier)
+    if (!Number.isFinite(augmentId) || !Number.isFinite(tier)) return
+
+    const items = groups.get(tier) ?? []
+    items.push({
+      id: augmentId,
+      pickRate: toNumber(augment.pick_rate),
+      winRate: toNumber(augment.win_rate),
+    })
+    groups.set(tier, items)
+  })
+
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([tier, items]) => ({
+      rarity: tier,
+      label: `T${tier}`,
+      items: items
+        .sort((a, b) => b.pickRate - a.pickRate || b.winRate - a.winRate)
+        .slice(0, 5)
+        .map((augment) => ({
+          id: augment.id,
+          pickRate: augment.pickRate,
+          winRate: augment.winRate,
+        })),
+    }))
 }
 
 function getRecommendationMeta(champion: OpggChampion): BuildRecommendation['meta'] {

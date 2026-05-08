@@ -75,7 +75,11 @@ export interface BuildRecommendation {
   prismItems: OpggItemBuild[]
   lastItems: OpggItemBuild[]
   runePages: OpggRuneBuild[]
-  augments: Array<{ rarity: number; items: Array<{ id: number; pickRate: number; averagePlace: number; firstPlace: number }> }>
+  augments: Array<{
+    rarity: number
+    label?: string
+    items: Array<{ id: number; pickRate: number; averagePlace?: number; firstPlace?: number; winRate?: number }>
+  }>
   meta?: RecommendationMeta
   warning?: string
 }
@@ -227,6 +231,15 @@ function TrendMeta({ meta }: { meta?: RecommendationMeta }) {
 
   const trend = getRankTrend(meta.rankDelta)
   const rankText = meta.rank && meta.totalRank ? `${meta.rank}/${meta.totalRank}` : meta.rank ? `#${meta.rank}` : ''
+  if (trend.kind === 'unknown' && rankText) {
+    return (
+      <div className="sobp-meta">
+        <div className="sobp-meta-trend sobp-meta-trend--flat">
+          <span className="sobp-meta-rank">{rankText}</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="sobp-meta">
@@ -491,25 +504,26 @@ function AugmentSection({ title, groups }: { title: string; groups?: BuildRecomm
       <Section title={title} empty={visibleGroups.length === 0}>
         {visibleGroups.map((group) => (
           <div className="sobp-augment-group" key={group.rarity}>
-            <div className="sobp-augment-rarity">{getAugmentRarityLabel(group.rarity)}</div>
+            <div className="sobp-augment-rarity">{group.label ?? getAugmentRarityLabel(group.rarity)}</div>
             <div className="sobp-augment-grid">
               {group.items.map((augment) => {
                 const info = getAugmentInfo(augment.id)
+                const detailText = Number.isFinite(augment.winRate)
+                  ? `登场 ${formatPercent(augment.pickRate)} · 胜率 ${formatPercent(augment.winRate)}`
+                  : `登场 ${formatPercent(augment.pickRate)} · 均排 ${formatPlace(augment.averagePlace)}`
                 return (
                   <div className="sobp-augment" key={augment.id}>
                     <BuildIcon
                       src={info?.iconPath ?? ''}
                       title={info?.name ?? String(augment.id)}
                       description={info?.description ?? ''}
-                      subtitle={getAugmentRarityLabel(group.rarity)}
+                      subtitle={group.label ?? getAugmentRarityLabel(group.rarity)}
                       size={28}
                       border={getAugmentBorder(info?.rarity)}
                     />
                     <div className="sobp-augment-info">
                       <div className="sobp-augment-name">{info?.name ?? String(augment.id)}</div>
-                      <div className="sobp-augment-meta">
-                        登场 {formatPercent(augment.pickRate)} · 均排 {formatPlace(augment.averagePlace)}
-                      </div>
+                      <div className="sobp-augment-meta">{detailText}</div>
                     </div>
                   </div>
                 )
