@@ -251,6 +251,81 @@ function isJsonLikePayload(payload: string): boolean {
   return payload.startsWith('{') || payload.startsWith('[') || payload.startsWith('"')
 }
 
+function readBalancedArrayLiteral(text: string, startIndex: number): string | null {
+  if (text[startIndex] !== '[') return null
+
+  let depth = 0
+  let quote: '"' | "'" | '`' | null = null
+  let escaped = false
+
+  for (let i = startIndex; i < text.length; i++) {
+    const char = text[i]
+
+    if (quote) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === quote) {
+        quote = null
+      }
+      continue
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char
+      continue
+    }
+
+    if (char === '[') {
+      depth++
+    } else if (char === ']') {
+      depth--
+      if (depth === 0) return text.slice(startIndex, i + 1)
+    }
+  }
+
+  return null
+}
+
+/**
+ * 从 Next.js HTML 中提取 self.__next_f.push(...) 拼接出的 RSC 文本流。
+ *
+ * ARAMGG 在普通 GET 下可能返回完整 HTML，而不是纯 RSC stream。后续解析只关心
+ * push 数组的第二项字符串，因此这里先把这些 chunk 还原成纯 RSC 文本。
+ */
+export function extractRscFromHtml(htmlRawText: string): string {
+  let rscStream = ''
+  const pushCallRegex = /(?:self\.__next_f|\(self\.__next_f\s*=\s*self\.__next_f\s*\|\|\s*\[\]\))\.push\s*\(/g
+  let match: RegExpExecArray | null
+
+  while ((match = pushCallRegex.exec(htmlRawText)) !== null) {
+    const arrayStart = htmlRawText.indexOf('[', pushCallRegex.lastIndex)
+    if (arrayStart < 0) break
+
+    const arrayLiteral = readBalancedArrayLiteral(htmlRawText, arrayStart)
+    if (!arrayLiteral) continue
+
+    pushCallRegex.lastIndex = arrayStart + arrayLiteral.length
+
+    try {
+      const parsedArray = JSON.parse(arrayLiteral) as unknown
+      if (Array.isArray(parsedArray) && typeof parsedArray[1] === 'string') {
+        rscStream += parsedArray[1]
+      }
+    } catch {
+      // Ignore malformed/non-JSON push calls and keep scanning later chunks.
+    }
+  }
+
+  return rscStream
+}
+
+function normalizeRscInput(text: string): string {
+  const extracted = extractRscFromHtml(text)
+  return extracted || text
+}
+
 function isStatEntry(value: JsonValue): value is JsonObject {
   return isObject(value)
     && value.tier != null
@@ -378,7 +453,7 @@ function collectEscapedCoreItemBuildArrays(rscText: string, target: AramggChampi
 }
 
 export function parseAramggChampionRecommendation(text: string, championId?: number): AramggChampionRecommendation {
-  const fixedText = fixUtf8Mojibake(text)
+  const fixedText = normalizeRscInput(fixUtf8Mojibake(text))
   const result: AramggChampionRecommendation = {
     championStats: championId != null ? { championId: String(championId) } : null,
     augments: {},
