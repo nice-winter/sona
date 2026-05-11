@@ -12,9 +12,9 @@ import { injector } from '@/lib/InjectorManager'
 import { createElement } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import { getAugmentInfo, getQueue, getQueueName } from '@/lib/assets'
+import { getAugmentInfo, getChampionById, getQueue, getQueueName } from '@/lib/assets'
 import { OpggBuildRecommendationPanel, type BuildRecommendation, type RecommendationContext } from '@/components/ui/OpggBuildRecommendationPanel'
-import { lcu, LcuEventUri, type ChampSelectSession, type LCUEventMessage } from '@/lib/lcu'
+import { lcu, LcuEventUri, type ChampSelectSession, type ItemSet, type ItemSetBlock, type LCUEventMessage } from '@/lib/lcu'
 import { store } from '@/lib/store'
 import { aramggApi, type AramggChampionRecommendation, type AramggChampionStatEntry, type AramggCoreItemBuild, type AramggMayhemAugments } from '@/lib/aramgg-api'
 import {
@@ -34,6 +34,9 @@ const TARGET_SELECTOR = '.toggle-ability-previews-button'
 const HIJACK_ATTR = 'data-sona-opgg-build-hijacked'
 const PANEL_ID = 'sona-opgg-build-panel'
 const DEFAULT_OPGG_TIER: OpggTier = 'master_plus'
+const SONA_ITEM_SET_TITLE_PREFIX = '[Sona]'
+const HEALTH_POTION_ID = 2003
+const ITEM_SET_ASSOCIATED_MAPS = [11, 12, 30]
 const SELECTABLE_OPGG_TIERS: OpggTier[] = [
   'all',
   'challenger',
@@ -74,11 +77,14 @@ let currentContext: RecommendationContext = {
   gameMode: '',
   position: 'none',
 }
+let currentChampionLocked = false
 const boundElements: Array<{ el: HTMLElement; handler: EventListener; originalText: string }> = []
 const recommendationCache = new Map<string, RecommendationCacheEntry>()
 let outsideCloseHandler: ((event: MouseEvent) => void) | null = null
 let activePanelKey = ''
 let panelReactRoot: Root | null = null
+let lastAppliedItemSetKey = ''
+const itemSetSyncInFlightKeys = new Set<string>()
 
 function getLocalChampionId(session: ChampSelectSession): number {
   const localPlayer = session.myTeam.find((player) => player.cellId === session.localPlayerCellId)
@@ -87,6 +93,21 @@ function getLocalChampionId(session: ChampSelectSession): number {
 
 function getLocalPlayer(session: ChampSelectSession) {
   return session.myTeam.find((player) => player.cellId === session.localPlayerCellId)
+}
+
+function isLocalChampionLocked(session: ChampSelectSession): boolean {
+  const localPlayer = getLocalPlayer(session)
+  if (!localPlayer || localPlayer.championId <= 0) return false
+
+  const localPickActions = session.actions
+    .flat(2)
+    .filter((action) => action.actorCellId === session.localPlayerCellId && action.type === 'pick')
+
+  if (localPickActions.length === 0) {
+    return true
+  }
+
+  return localPickActions.some((action) => action.completed && action.championId === localPlayer.championId)
 }
 
 function mapAssignedPosition(position: string | undefined): OpggPosition {
@@ -221,11 +242,206 @@ function trimRecommendationCache() {
   }
 }
 
+function toItemSetEntry(id: number) {
+  return {
+    id: String(id),
+    count: id === HEALTH_POTION_ID ? 2 : 1,
+  }
+}
+
+function normalizeItemIds(ids: number[]): number[] {
+  const seen = new Set<number>()
+  const normalized: number[] = []
+
+  for (const id of ids) {
+    const itemId = Number(id)
+    if (!Number.isFinite(itemId) || itemId <= 0 || seen.has(itemId)) continue
+    seen.add(itemId)
+    normalized.push(itemId)
+  }
+
+  return normalized
+}
+
+function flattenItemBuilds(builds: OpggItemBuild[]): number[] {
+  return normalizeItemIds(builds.flatMap((build) => build.ids))
+}
+
+function getItemBuildWinRate(build: OpggItemBuild): number {
+  return build.play > 0 ? build.win / build.play : 0
+}
+
+function sortItemBuildsByWinRate(builds: OpggItemBuild[]): OpggItemBuild[] {
+  return [...builds].sort((a, b) => {
+    const winRateDiff = getItemBuildWinRate(b) - getItemBuildWinRate(a)
+    return winRateDiff || b.pick_rate - a.pick_rate || b.play - a.play
+  })
+}
+
+function createItemSetBlock(type: string, itemIds: number[]): ItemSetBlock | null {
+  const ids = normalizeItemIds(itemIds)
+  if (ids.length === 0) return null
+
+  return {
+    type,
+    items: ids.map(toItemSetEntry),
+  }
+}
+
+function appendItemSetBlock(blocks: ItemSetBlock[], type: string, itemIds: number[]): void {
+  const block = createItemSetBlock(type, itemIds)
+  if (block) blocks.push(block)
+}
+
+function buildItemSetBlocks(recommendation: BuildRecommendation): ItemSetBlock[] {
+  const blocks: ItemSetBlock[] = []
+  const starterItems = sortItemBuildsByWinRate(recommendation.starterItems)
+  const boots = sortItemBuildsByWinRate(recommendation.boots)
+  const prismItems = sortItemBuildsByWinRate(recommendation.prismItems)
+  const coreItems = sortItemBuildsByWinRate(recommendation.coreItems)
+  const lastItems = sortItemBuildsByWinRate(recommendation.lastItems)
+
+  starterItems.slice(0, 3).forEach((build, index) => {
+    appendItemSetBlock(blocks, `${index + 1}. 出门装`, build.ids)
+  })
+
+  appendItemSetBlock(blocks, `${blocks.length + 1}. 鞋子`, flattenItemBuilds(boots))
+
+  if (prismItems.length > 0) {
+    appendItemSetBlock(blocks, `${blocks.length + 1}. 棱彩装备`, flattenItemBuilds(prismItems))
+  }
+
+  coreItems.slice(0, 3).forEach((build, index) => {
+    appendItemSetBlock(blocks, `${blocks.length + 1}. 核心装 ${index + 1}`, build.ids)
+  })
+
+  appendItemSetBlock(blocks, `${blocks.length + 1}. 后续装备`, flattenItemBuilds(lastItems))
+
+  return blocks
+}
+
+function getManagedItemSetUid(context: RecommendationContext): string {
+  return `sona-${context.championId}`
+}
+
+function getChampionName(championId: number): string {
+  const champion = getChampionById(championId)
+  if (!champion) return `英雄 ${championId}`
+
+  return [champion.title, champion.name].filter(Boolean).join(' ')
+}
+
+function getPositionLabel(position: OpggPosition): string {
+  switch (position) {
+    case 'top':
+      return '上路'
+    case 'jungle':
+      return '打野'
+    case 'mid':
+      return '中路'
+    case 'adc':
+      return '下路'
+    case 'support':
+      return '辅助'
+    default:
+      return ''
+  }
+}
+
+function getManagedItemSetTitle(context: RecommendationContext, recommendation: BuildRecommendation): string {
+  const championName = getChampionName(context.championId)
+  const positionLabel = getPositionLabel(context.position)
+  const suffix = positionLabel ? `${recommendation.modeLabel}/${positionLabel}` : recommendation.modeLabel
+  return `${SONA_ITEM_SET_TITLE_PREFIX} ${championName} - ${suffix}`
+}
+
+function createManagedItemSet(context: RecommendationContext, recommendation: BuildRecommendation): ItemSet | null {
+  const blocks = buildItemSetBlocks(recommendation)
+  if (blocks.length === 0) return null
+
+  return {
+    uid: getManagedItemSetUid(context),
+    title: getManagedItemSetTitle(context, recommendation),
+    type: 'custom',
+    mode: 'any',
+    map: 'any',
+    associatedChampions: [context.championId],
+    associatedMaps: ITEM_SET_ASSOCIATED_MAPS,
+    blocks,
+    preferredItemSlots: [],
+    sortrank: 0,
+    startedFrom: 'blank',
+  }
+}
+
+function isSameManagedItemSetContext(itemSet: ItemSet, nextItemSet: ItemSet): boolean {
+  if (itemSet.uid === nextItemSet.uid) return true
+  return itemSet.title === nextItemSet.title
+}
+
+function isCurrentRecommendationContext(context: RecommendationContext): boolean {
+  return currentContext.championId === context.championId
+    && currentContext.queueId === context.queueId
+    && currentContext.gameMode === context.gameMode
+    && currentContext.position === context.position
+}
+
+async function upsertRecommendedItemSet(context: RecommendationContext, recommendation: BuildRecommendation): Promise<void> {
+  const nextItemSet = createManagedItemSet(context, recommendation)
+  if (!nextItemSet) {
+    logger.warn('[OPGG] 装备集生成失败：没有可写入的装备 block')
+    return
+  }
+
+  const summoner = await lcu.getSummonerInfo()
+  const wrapper = await lcu.getItemSets(summoner.summonerId)
+  const existingItemSets = Array.isArray(wrapper?.itemSets) ? wrapper.itemSets : []
+  const itemSets = existingItemSets.filter((itemSet) => !isSameManagedItemSetContext(itemSet, nextItemSet))
+
+  await lcu.putItemSets(summoner.summonerId, {
+    accountId: wrapper?.accountId ?? summoner.accountId ?? 0,
+    itemSets: [...itemSets, nextItemSet],
+    timestamp: Date.now(),
+  })
+
+  logger.info('[OPGG] 自动装备集已同步：%s，blocks=%d', nextItemSet.title, nextItemSet.blocks.length)
+  const championName = getChampionName(context.championId)
+  lcu.sendChampSelectMessage(`${championName} 出装已配备 - Sona`, 'celebration').catch((err) => {
+    logger.warn('[OPGG] 自动装备集聊天提示发送失败:', err)
+  })
+}
+
+function syncRecommendedItemSetWhenReady(entry: RecommendationCacheEntry): void {
+  if (!store.get('opggBuildRecommendation')) return
+  if (!currentChampionLocked) return
+
+  const syncKey = getManagedItemSetUid(entry.context)
+  if (lastAppliedItemSetKey === syncKey || itemSetSyncInFlightKeys.has(syncKey)) return
+
+  itemSetSyncInFlightKeys.add(syncKey)
+  entry.promise
+    .then(async (recommendation) => {
+      if (!recommendation || !store.get('opggBuildRecommendation')) return
+      if (!currentChampionLocked) return
+      if (!isCurrentRecommendationContext(entry.context)) return
+      if (lastAppliedItemSetKey === syncKey) return
+      await upsertRecommendedItemSet(entry.context, recommendation)
+      lastAppliedItemSetKey = syncKey
+    })
+    .catch((err) => {
+      logger.warn('[OPGG] 自动装备集同步失败:', err)
+    })
+    .finally(() => {
+      itemSetSyncInFlightKeys.delete(syncKey)
+    })
+}
+
 async function refreshContext(session?: ChampSelectSession) {
   try {
     const currentSession = session ?? await lcu.getChampSelectSession()
     const localPlayer = getLocalPlayer(currentSession)
     const queueId = currentSession.queueId ?? 0
+    currentChampionLocked = isLocalChampionLocked(currentSession)
     currentContext = {
       championId: localPlayer?.championId ?? getLocalChampionId(currentSession),
       queueId,
@@ -249,7 +465,10 @@ async function refreshContext(session?: ChampSelectSession) {
 
     if (currentContext.championId > 0) {
       mount()
-      ensureRecommendationPrefetch(currentContext)
+      const cacheEntry = ensureRecommendationPrefetch(currentContext)
+      if (cacheEntry && currentChampionLocked) {
+        syncRecommendedItemSetWhenReady(cacheEntry)
+      }
     } else {
       unmount(false)
     }
@@ -632,6 +851,8 @@ async function openRecommendationPanel(anchor: HTMLElement, contextOverride?: Re
     const nextTier = normalizeOpggTier(tier)
     store.set('opggBuildRecommendationTier', nextTier)
     recommendationCache.delete(getRecommendationCacheKey(context))
+    const cacheEntry = ensureRecommendationPrefetch(context)
+    if (cacheEntry) syncRecommendedItemSetWhenReady(cacheEntry)
     void openRecommendationPanel(anchor, context)
   }
 
@@ -781,6 +1002,9 @@ function unmount(resetContext = true) {
       position: 'none',
     }
   }
+  currentChampionLocked = false
+  lastAppliedItemSetKey = ''
+  itemSetSyncInFlightKeys.clear()
   closePanel()
 }
 

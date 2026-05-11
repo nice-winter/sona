@@ -10,6 +10,7 @@ import { lcu, SGP_SERVERS } from '@/lib/lcu'
 import { aramggApi } from '@/lib/aramgg-api'
 import { searchChampions, type ChampionInfo, getChampionBalanceMeta, getAllChampionBalances } from '@/lib/assets'
 import { openOpggBuildRecommendationDebugPanel } from '@/lib/features/opgg-build-recommendation'
+import { opggApi } from '@/lib/opgg-api'
 import { logger } from '@/index'
 import '@/styles/SettingsPage.css'
 
@@ -212,6 +213,66 @@ export function DebugPage() {
     return aramggApi.getMayhemAugmentsZhCn()
   }
 
+  const fetchOpggDebugBuildData = async () => {
+    const championId = await getOpggDebugChampionId()
+    const mode = 'ranked'
+    const position = 'mid'
+    const tier = 'platinum_plus'
+    const champion = await opggApi.getChampion({
+      id: championId,
+      region: 'global',
+      mode,
+      position,
+      tier,
+    })
+    const data = champion.data
+
+    return {
+      request: {
+        championId,
+        region: 'global',
+        mode,
+        position,
+        tier,
+        version: champion.meta.version,
+      },
+      summary: data.summary,
+      starter_items: data.starter_items ?? [],
+      boots: data.boots ?? [],
+      core_items: data.core_items ?? [],
+      prism_items: 'prism_items' in data ? data.prism_items : [],
+      last_items: data.last_items ?? [],
+      raw: champion,
+    }
+  }
+
+  const fetchRegaliaBanners = async () => {
+    const inventory = await lcu.getRegaliaBannerInventory()
+
+    const banners = inventory.flatMap((entry, groupIndex) => {
+      return (entry.items ?? []).map((item) => ({
+        groupIndex,
+        id: String(item.id),
+        idSecondary: item.idSecondary,
+        name: item.localizedName || `Banner ${item.id}`,
+        assetPath: item.assetPath,
+        regaliaType: item.regaliaType,
+        isSelectable: item.isSelectable,
+        isTencentOnly: item.isTencentOnly,
+        isOwned: entry.isOwned,
+        purchaseDate: entry.purchaseDate ?? '',
+      }))
+    })
+
+    return {
+      total: banners.length,
+      owned: banners.filter((banner) => banner.isOwned).length,
+      groups: inventory.length,
+      banners,
+      raw: inventory,
+    }
+  }
+
   const getOpggDebugChampionId = async () => {
     if (selectedChampId > 0) return selectedChampId
     try {
@@ -241,6 +302,9 @@ export function DebugPage() {
           </SonaButton>
           <SonaButton onClick={() => runAndLog('获取聊天会话', () => lcu.getChatConversations())}>
             聊天会话列表
+          </SonaButton>
+          <SonaButton onClick={() => runAndLog('旗帜库存 (REGALIA_BANNER)', fetchRegaliaBanners)}>
+            旗帜库存
           </SonaButton>
         </div>
       </SettingGroup>
@@ -468,6 +532,9 @@ export function DebugPage() {
             return fetchOpggJson(`/api/global/champions/ranked/${id}/mid`, { tier: 'platinum_plus' })
           })}>
             单英雄 ranked
+          </SonaButton>
+          <SonaButton variant="primary" onClick={() => runAndLog('OP.GG 配装字段 ranked/mid', fetchOpggDebugBuildData)}>
+            配装字段
           </SonaButton>
           <SonaButton onClick={() => runAndLog('OP.GG 单英雄 ARAM', async () => {
             const id = await getOpggDebugChampionId()
@@ -775,9 +842,7 @@ export function DebugPage() {
 
       <SettingGroup title="头像框 & 头像">
         <div className="sona-debug-actions">
-          <SonaButton onClick={() => runAndLog('Regalia v2', async () => {
-            const res = await fetch('/lol-regalia/v2/current-summoner/regalia'); return res.json()
-          })}>
+          <SonaButton onClick={() => runAndLog('Regalia v2', () => lcu.getRegalia())}>
             查看 Regalia
           </SonaButton>
           <SonaButton onClick={() => runAndLog('当前头像', async () => {

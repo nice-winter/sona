@@ -110,7 +110,6 @@ export function ToolsPage() {
   const [hideRightNavText, setHideRightNavText] = useState(store.get('hideRightNavText'))
   const [windowEffect, setWindowEffect] = useState(store.get('windowEffect'))
   const [champSelectAssist, setChampSelectAssist] = useState(store.get('champSelectAssist'))
-  const [champSelectTierBadge, setChampSelectTierBadge] = useState(store.get('champSelectTierBadge'))
   const [opggBuildRecommendation, setOpggBuildRecommendation] = useState(store.get('opggBuildRecommendation'))
   const [balanceBuffTooltip, setBalanceBuffTooltip] = useState(store.get('balanceBuffTooltip'))
   const [champSelectQuitButton, setChampSelectQuitButton] = useState(store.get('champSelectQuitButton'))
@@ -126,6 +125,7 @@ export function ToolsPage() {
   const [sideIndicatorMsgType, setSideIndicatorMsgType] = useState(store.get('sideIndicatorMsgType'))
   const [friendSmartGroup, setFriendSmartGroup] = useState(store.get('friendSmartGroup'))
   const [customProfileBg, setCustomProfileBg] = useState(store.get('customProfileBg'))
+  const [customBanner, setCustomBanner] = useState(store.get('customBanner'))
   const [rankQueue, setRankQueue] = useState(store.get('rankQueue'))
   const [rankTier, setRankTier] = useState(store.get('rankTier'))
   const [rankDivision, setRankDivision] = useState(store.get('rankDivision'))
@@ -163,7 +163,6 @@ export function ToolsPage() {
       store.onChange('hideTFT', setHideTFT),
       store.onChange('windowEffect', setWindowEffect),
       store.onChange('champSelectAssist', setChampSelectAssist),
-      store.onChange('champSelectTierBadge', setChampSelectTierBadge),
       store.onChange('opggBuildRecommendation', setOpggBuildRecommendation),
       store.onChange('balanceBuffTooltip', setBalanceBuffTooltip),
       store.onChange('champSelectQuitButton', setChampSelectQuitButton),
@@ -177,6 +176,7 @@ export function ToolsPage() {
       store.onChange('sideIndicator', setSideIndicator),
       store.onChange('friendSmartGroup', setFriendSmartGroup),
       store.onChange('customProfileBg', setCustomProfileBg),
+      store.onChange('customBanner', setCustomBanner),
       store.onChange('autoHonor', setAutoHonor),
       store.onChange('autoLockChampion', setAutoLockChampion),
       store.onChange('rankQueue', setRankQueue),
@@ -360,7 +360,7 @@ export function ToolsPage() {
         </SettingCard>
         <SettingCard
           title="英雄选择阶段增强"
-          description="英雄选择时显示粒子特效，底部自动显示本模式近期胜率和KDA，点击队友头像可查询近期战绩。"
+          description="英雄选择时显示粒子特效、队友近期胜率/KDA、英雄 T 级角标和备选席胜率；点击队友头像可查询近期战绩。"
         >
           <SonaSelect
             value={String(champSelectAssistFetchCount)}
@@ -374,15 +374,6 @@ export function ToolsPage() {
           <SonaSwitch
             checked={champSelectAssist}
             onChange={(v) => { setChampSelectAssist(v); store.set('champSelectAssist', v) }}
-          />
-        </SettingCard>
-        <SettingCard
-          title="英雄 T 级角标"
-          description="英雄选择时，在头像左上角显示 OP.GG 英雄强度分级（OP-T5），方便快速判断当前模式强度。"
-        >
-          <SonaSwitch
-            checked={champSelectTierBadge}
-            onChange={(v) => { setChampSelectTierBadge(v); store.set('champSelectTierBadge', v) }}
           />
         </SettingCard>
         <SettingCard
@@ -551,7 +542,7 @@ export function ToolsPage() {
         </SettingCard>
         <SettingCard
           title="卸下头像边框"
-          description="移除头像框装饰，恢复干净的头像展示。(需召唤兽等级>=525)"
+          description="移除头像框装饰，恢复干净的头像展示。(需召唤师等级>=525)"
         >
           <SonaButton onClick={async () => {
             try {
@@ -569,12 +560,36 @@ export function ToolsPage() {
           </SonaButton>
         </SettingCard>
         <SettingCard
+          title="卸下头像"
+          description="将召唤师头像恢复为客户端默认头像。"
+        >
+          <SonaButton onClick={async () => {
+            try {
+              await lcu.setProfileIcon(29)
+              logger.info('头像已恢复为默认头像 ✓')
+            } catch (err) {
+              logger.error('恢复默认头像失败:', err)
+            }
+          }}>
+            卸下
+          </SonaButton>
+        </SettingCard>
+        <SettingCard
           title="自定义生涯背景"
           description="增强修改生涯背景弹窗，可以选择任意皮肤作为生涯背景。"
         >
           <SonaSwitch
             checked={customProfileBg}
             onChange={(v) => { setCustomProfileBg(v); store.set('customProfileBg', v) }}
+          />
+        </SettingCard>
+        <SettingCard
+          title="自定义旗帜"
+          description="在原有设置旗帜处新增自定义旗帜按钮，更换的旗帜仅自己可见。"
+        >
+          <SonaSwitch
+            checked={customBanner}
+            onChange={(v) => { setCustomBanner(v); store.set('customBanner', v) }}
           />
         </SettingCard>
         <SettingCard
